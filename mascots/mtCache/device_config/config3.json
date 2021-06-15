@@ -1,0 +1,36 @@
+[{
+    "name": "DRAM",
+    "label": "D1",
+    "read_lat": 0.0000755,
+    "write_lat": 0.0000755,
+    "price": 0.00002431869,
+    "product": "Corsair Vengeance LPX DDR4 3000 C15 2x8GB",
+    "ref": "https://ram.userbenchmark.com/Corsair-Vengeance-LPX-DDR4-3000-C15-2x8GB/Rating/3546",
+    "size": 16,
+    "cost": 102,
+    "date": "06/10/2021"
+},
+{
+    "name": "SSD",
+    "label": "S1",
+    "read_lat": 0.158,
+    "write_lat": 0.370,
+    "product": "HP EX920", 
+    "ref": "https://www.anandtech.com/show/13037/the-hp-ex920-m2-ssd-review/3",
+    "price_ref": "https://www.newegg.com/hp-ex920-1tb/p/N82E16820326778",
+    "price": 4.47034836e-7,
+    "cost": 120,
+    "date": "06/10/2021"
+},
+{
+    "name": "HDD",
+    "label": "H1",
+    "read_lat": 2.463,
+    "write_lat": 1.674,
+    "product": "Western Digital Black 4TB 3.5 7200RPM Internal Hard Drive", 
+    "ref": "https://www.storagereview.com/review/wd-black-4tb-review-wd4001faex",
+    "price_ref": "https://www.newegg.com/black-wd4005fzbx-4tb/p/234-000G-000W6?Item=234-000G-000W6&nm_mc=AFC-RAN-COM&cm_mmc=AFC-RAN-COM&utm_medium=affiliates&utm_source=afc-PCPartPicker&AFFID=2558510&AFFNAME=PCPartPicker&ACRID=1&ASID=https%3a%2f%2fpcpartpicker.com%2f&ranMID=44583&ranEAID=2558510&ranSiteID=8BacdVP0GFs-QrFl_hMYG0JJFZ3Jq6tpcQ",
+    "price": 0,
+    "cost": 150,
+    "date": "06/10/2021"
+}]

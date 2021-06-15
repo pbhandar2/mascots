@@ -1,0 +1,37 @@
+[{
+    "name": "DRAM",
+    "label": "D1",
+    "read_lat": 0.0000755,
+    "write_lat": 0.0000755,
+    "price": 0.00002431869,
+    "product": "Corsair Vengeance LPX DDR4 3000 C15 2x8GB",
+    "ref": "https://ram.userbenchmark.com/Corsair-Vengeance-LPX-DDR4-3000-C15-2x8GB/Rating/3546",
+    "size": 16,
+    "cost": 102,
+    "date": "06/10/2021"
+},
+{
+    "name": "Optane-DIMM",
+    "label": "O1",
+    "read_lat": 0.000305,
+    "write_lat": 0.000094,
+    "price": 0.00003975629,
+    "product": "Intel® Optane™ DC Persistent Memory Module",
+    "ref": "https://arxiv.org/pdf/1903.05714.pdf",
+    "size": 256,
+    "cost": 2668,
+    "price_ref": "https://www.anandtech.com/show/14180/pricing-of-intels-optane-dc-persistent-memory-modules-leaks",
+    "date": "06/10/2021"
+},
+{
+    "name": "HDD",
+    "label": "H2",
+    "read_lat": 5.5,
+    "write_lat": 5.5,
+    "product": "Toshiba MK7559GSXP - 750 GB - SATA-300 Series", 
+    "ref": "https://www.cnet.com/products/toshiba-mk7559gsxp-hard-drive-750-gb-sata-300-series/",
+    "price_ref": "https://www.amazon.com/dp/B003YGEPHG/ref=asc_df_B003YGEPHG1623495600000?tag=cnet_mp-pc-20&creative=395261&creativeASIN=B003YGEPHG&linkCode=asn&ascsubtag=8fd4396218f6422585aab0bbd6f9ae16%7Ca6fceb90-cc08-11eb-8adc-055432a91124%7Cdtp",
+    "price": 0,
+    "cost": 62.5,
+    "date": "06/10/2021"
+}]
