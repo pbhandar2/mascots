@@ -18,6 +18,14 @@ for config_path in pathlib.Path("../../mascots/mtCache/device_config").iterdir()
 START_TIME = time.time()
 
 
+PAGE_SIZE = 4096 # 4KB
+ALLOCATION_GRANULARITY = 10*1024*1024 # 10MB
+MAX_TIER1 = 128*1024*1024*1024 # 128GB
+
+MAX_TIER1_SIZE = int(MAX_TIER1/ALLOCATION_GRANULARITY)
+
+
+
 def process_t1(rd_hist, t1_size_array, bin_width, device_config_list, output_dir):
     mt_cache = MTCache()
     for index, t1_size in enumerate(t1_size_array):
@@ -54,7 +62,7 @@ def main(workload_name, bin_width, cpu_count):
 
     rd_hist_path = WORKLOAD_DIR.joinpath("{}.csv".format(workload_name))
     rd_hist = bin_rdhist(read_reuse_hist_file(rd_hist_path), bin_width)
-    num_rows = len(rd_hist)
+    num_rows = min(len(rd_hist), MAX_TIER1_SIZE) 
     print("RD Hist Loaded! {}".format(rd_hist_path))
 
     pool = mp.Pool(cpu_count)
@@ -76,7 +84,7 @@ def main(workload_name, bin_width, cpu_count):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate exclusive cache analysis for a workload")
     parser.add_argument("workload_name", help="The name of the workload to be evaluted")
-    parser.add_argument("--c", default=4, help="The number of CPU to use for multiprocessing")
+    parser.add_argument("--c", type=int, default=4, help="The number of CPU to use for multiprocessing")
     args = parser.parse_args()
 
     main(args.workload_name, 2560, args.c)
