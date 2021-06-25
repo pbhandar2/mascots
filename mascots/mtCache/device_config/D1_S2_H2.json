@@ -1,0 +1,37 @@
+[{
+    "name": "DRAM",
+    "label": "D1",
+    "read_lat": 0.0000755,
+    "write_lat": 0.0000755,
+    "price": 0.000026112,
+    "product": "Corsair Vengeance LPX DDR4 3000 C15 2x8GB",
+    "ref": "https://ram.userbenchmark.com/Corsair-Vengeance-LPX-DDR4-3000-C15-2x8GB/Rating/3546",
+    "size": 16,
+    "cost": 102,
+    "date": "06/10/2021"
+},
+{
+    "name": "SSD",
+    "label": "S2",
+    "read_lat": 0.976,
+    "write_lat": 3.51,
+    "product": "Seagate IronWolf 125 SSD 500GB NAS Internal Solid State Drive - 2.5 Inch SATA", 
+    "ref": "https://www.storagereview.com/review/seagate-ironwolf-125-ssd-review",
+    "price_ref": "https://www.amazon.com/Seagate-IronWolf-500GB-Internal-Solid/dp/B08FNZ92SS",
+    "price": 6.5536e-7,
+    "cost": 80,
+    "size": 500, 
+    "date": "06/10/2021"
+},
+{
+    "name": "HDD",
+    "label": "H2",
+    "read_lat": 5.5,
+    "write_lat": 5.5,
+    "product": "Toshiba MK7559GSXP - 750 GB - SATA-300 Series", 
+    "ref": "https://www.cnet.com/products/toshiba-mk7559gsxp-hard-drive-750-gb-sata-300-series/",
+    "price_ref": "https://www.amazon.com/dp/B003YGEPHG/ref=asc_df_B003YGEPHG1623495600000?tag=cnet_mp-pc-20&creative=395261&creativeASIN=B003YGEPHG&linkCode=asn&ascsubtag=8fd4396218f6422585aab0bbd6f9ae16%7Ca6fceb90-cc08-11eb-8adc-055432a91124%7Cdtp",
+    "price": 0,
+    "cost": 62.5,
+    "date": "06/10/2021"
+}]
