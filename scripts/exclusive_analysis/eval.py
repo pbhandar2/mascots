@@ -48,7 +48,7 @@ def get_t1_size_array(num_rows, cpu_count):
     return t1_size_array.reshape(-1, cpu_count).transpose()
 
 
-def main(workload_name, bin_width):
+def main(workload_name, bin_width, cpu_count):
     workload_output_dir = OUTPUT_DIR.joinpath(workload_name)
     workload_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -57,7 +57,6 @@ def main(workload_name, bin_width):
     num_rows = len(rd_hist)
     print("RD Hist Loaded! {}".format(rd_hist_path))
 
-    cpu_count = 4
     pool = mp.Pool(cpu_count)
     per_process_input_array = get_t1_size_array(num_rows, cpu_count)
     try:
@@ -77,8 +76,9 @@ def main(workload_name, bin_width):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate exclusive cache analysis for a workload")
     parser.add_argument("workload_name", help="The name of the workload to be evaluted")
+    parser.add_argument("--c", default=4, help="The number of CPU to use for multiprocessing")
     args = parser.parse_args()
 
-    main(args.workload_name, 2560)
+    main(args.workload_name, 2560, args.c)
     end = time.time()
     print("Time Elasped: {}".format((end - START_TIME)/60))
