@@ -128,7 +128,7 @@ class MTCache:
             # this means no cache latency of serving everything from hard disk 
             mt_lat = self.get_no_cache_latency(device_config)
         elif count_nonzero_cache_size == 1:
-            # this means latency of a multi-tier cache 
+            # this means latency of a single-tier cache 
             mt_lat = self.get_single_tier_lat_wt(mt_config, device_config)
         else:
             mt_lat = self.get_exclusive_tier_lat_wb(mt_config, device_config)
@@ -141,6 +141,161 @@ class MTCache:
     def get_mean_lat(self, mt_lat, cache_hits, total_req):
         return np.sum(np.multiply(cache_hits, mt_lat))/np.sum(total_req)
 
+
+    def eval_exclusive_mt_cache(self, rd_hist, t1_size, t2_size, device_config):
+        max_total_cache_size = len(rd_hist) - 1 
+        t1_size = min(t1_size, max_total_cache_size)
+        t2_size = min(t2_size, max_total_cache_size-t1_size)
+
+        t1_hits = self.get_t1_hits(rd_hist, t1_size)
+        t2_hits = np.sum(rd_hist[t1_size+1:t1_size+1+t2_size], axis=0)
+        total_req = np.sum(rd_hist, axis=0)
+        total_miss = total_req - t1_hits - t2_hits
+        cache_hits = np.array([t1_hits, t2_hits, total_miss])
+
+        mt_lat_wb = self.get_exclusive_tier_lat_wb([t1_size, t2_size], device_config)
+        mean_lat_wb = np.sum(np.multiply(cache_hits, mt_lat_wb))/np.sum(total_req)
+        return cache_hits, mt_lat_wb, mean_lat_wb 
+
+
+    def get_opt_exclusive_at_cost(self, rd_hist, bin_width, device_config, cost, log_handle=None):
+        min_lat_entry = {
+            "wt": {
+                "lat": math.inf,
+                "config": [0,0],
+                "hits": np.array([[0,0], [0,0], [0,0]]),
+                "st_1_lat": math.inf, 
+                "st_1": 0,
+                "st_2_lat": math.inf, 
+                "st_2": 0,
+            },
+            "wb": {
+                "lat": math.inf,
+                "config": [0,0],
+                "hits": np.array([[0,0], [0,0], [0,0]]),
+                "st_1_lat": math.inf, 
+                "st_1": 0,
+                "st_2_lat": math.inf, 
+                "st_2": 0,
+            }
+        }
+        max_total_cache_size = len(rd_hist) - 1
+        max_t1_size = min(max_total_cache_size, int(cost/(bin_width*device_config[0]["price"])))
+        for t1_size in range(max_t1_size):
+            t1_cost = bin_width*device_config[0]["price"]*t1_size
+            t1_hits = self.get_t1_hits(rd_hist, t1_size)
+            t2_size = min(max_total_cache_size-t1_size, int((cost-t1_cost)/(bin_width*device_config[1]["price"])))
+            t2_hits = np.sum(rd_hist[t1_size+1:t1_size+1+t2_size], axis=0)
+            total_req = np.sum(rd_hist, axis=0)
+            total_miss = total_req - t1_hits - t2_hits
+            cache_hits = np.array([t1_hits, t2_hits, total_miss])
+
+            # Write back 
+            mt_lat_wb = self.get_exclusive_tier_lat_wb([t1_size, t2_size], device_config)
+            mean_lat_wb = np.sum(np.multiply(cache_hits, mt_lat_wb))/np.sum(total_req)
+
+            # Write Through 
+            mt_lat_wt = self.get_exclusive_tier_lat_wt([t1_size, t2_size], device_config)
+            mean_lat_wt = np.sum(np.multiply(cache_hits, mt_lat_wt))/np.sum(total_req)
+
+            if t1_size == 0 and t2_size>0:
+                min_lat_entry["wb"]["st_2_lat"] = mean_lat_wb
+                min_lat_entry["wt"]["st_2_lat"] = mean_lat_wt
+                min_lat_entry["wb"]["st_2"] = t2_size 
+                min_lat_entry["wt"]["st_2"] = t2_size 
+        
+            if t1_size == max_t1_size-1:
+                temp_t2_size = 0 
+                temp_total_miss = total_req - t1_hits 
+                temp_cache_hits = np.array([t1_hits, [0,0], total_miss])
+
+                st_1_mean_lat_wb = np.sum(np.multiply(temp_cache_hits, mt_lat_wb))/np.sum(total_req)
+                st_1_mean_lat_wt = np.sum(np.multiply(temp_cache_hits, mt_lat_wt))/np.sum(total_req)
+
+                min_lat_entry["wb"]["st_1_lat"] = st_1_mean_lat_wb
+                min_lat_entry["wt"]["st_1_lat"] = st_1_mean_lat_wt
+                min_lat_entry["wb"]["st_1"] = t1_size 
+                min_lat_entry["wt"]["st_1"] = t1_size 
+
+                if min_lat_entry["wt"]["lat"] > st_1_mean_lat_wb:
+                    min_lat_entry["wt"]["lat"] = st_1_mean_lat_wb
+                    min_lat_entry["wt"]["config"] = [t1_size, 0]
+                    min_lat_entry["wt"]["hits"] = temp_cache_hits
+
+                if min_lat_entry["wb"]["lat"] > st_1_mean_lat_wb:
+                    min_lat_entry["wb"]["lat"] = st_1_mean_lat_wb
+                    min_lat_entry["wb"]["config"] = [t1_size, 0]
+                    min_lat_entry["wb"]["hits"] = temp_cache_hits
+
+            total_cost = bin_width * device_config[0]["price"] * t1_size + \
+                bin_width * device_config[1]["price"] * t2_size
+            total_cache_hits = np.array(t1_hits+t2_hits).sum()
+            total_req = np.sum(total_req)
+
+            try:
+                assert(total_cost<=cost)
+            except AssertionError as error:
+                print(error)
+                print(t1_size, t2_size, cost, total_cost)
+
+            if min_lat_entry["wt"]["lat"] > mean_lat_wt:
+                min_lat_entry["wt"]["lat"] = mean_lat_wt
+                min_lat_entry["wt"]["config"] = [t1_size, t2_size]
+                min_lat_entry["wt"]["hits"] = cache_hits
+
+            if min_lat_entry["wb"]["lat"] > mean_lat_wb:
+                min_lat_entry["wb"]["lat"] = mean_lat_wb
+                min_lat_entry["wb"]["config"] = [t1_size, t2_size]
+                min_lat_entry["wb"]["hits"] = cache_hits
+
+            if log_handle is not None:
+                log_handle.write("{},{},{},{}\n".format(cost, t1_size, mean_lat_wt, mean_lat_wb))
+
+        
+        if cost == 0.0:
+            t1_size = 0
+            t2_size = 0
+            mt_lat = self.get_exclusive_tier_lat_wt([t1_size, t2_size], device_config)
+            cache_hits = np.array([[0,0],[0,0],np.sum(rd_hist, axis=0)])
+            mean_lat = np.sum(np.multiply(cache_hits, mt_lat))/np.sum(rd_hist)
+
+            min_lat_entry["wb"]["lat"] = mean_lat
+            min_lat_entry["wt"]["lat"] = mean_lat
+            min_lat_entry["wb"]["st_1_lat"] = mean_lat
+            min_lat_entry["wt"]["st_1_lat"] = mean_lat
+            min_lat_entry["wb"]["st_2_lat"] = mean_lat
+            min_lat_entry["wt"]["st_2_lat"] = mean_lat
+            
+        return {
+            "c": cost, 
+            "wb_t1": min_lat_entry["wb"]["config"][0],
+            "wb_t2": min_lat_entry["wb"]["config"][1],
+            "wb_t1_read": min_lat_entry["wb"]["hits"][0][0],
+            "wb_t2_read": min_lat_entry["wb"]["hits"][1][0],
+            "wb_miss_read": min_lat_entry["wb"]["hits"][2][0],
+            "wb_t1_write": min_lat_entry["wb"]["hits"][0][1],
+            "wb_t2_write": min_lat_entry["wb"]["hits"][1][1],
+            "wb_miss_write": min_lat_entry["wb"]["hits"][2][1],
+            "wb_min_lat": min_lat_entry["wb"]["lat"],
+            "wt_t1": min_lat_entry["wt"]["config"][0],
+            "wt_t2": min_lat_entry["wt"]["config"][1],
+            "wt_t1_read": min_lat_entry["wt"]["hits"][0][0],
+            "wt_t2_read": min_lat_entry["wt"]["hits"][1][0],
+            "wt_miss_read": min_lat_entry["wt"]["hits"][2][0],
+            "wt_t1_write": min_lat_entry["wt"]["hits"][0][1],
+            "wt_t2_write": min_lat_entry["wt"]["hits"][1][1],
+            "wt_miss_write": min_lat_entry["wt"]["hits"][2][1],
+            "wt_min_lat": min_lat_entry["wt"]["lat"],
+            "wb_st_t1": min_lat_entry["wb"]["st_1"],
+            "wb_st_t2": min_lat_entry["wb"]["st_2"],
+            "wt_st_t1": min_lat_entry["wt"]["st_1"],
+            "wt_st_t2": min_lat_entry["wt"]["st_2"],
+            "wb_st_t1_lat": min_lat_entry["wb"]["st_1_lat"],
+            "wb_st_t2_lat": min_lat_entry["wb"]["st_2_lat"],
+            "wt_st_t1_lat": min_lat_entry["wt"]["st_1_lat"],
+            "wt_st_t2_lat": min_lat_entry["wt"]["st_2_lat"]
+        }
+            
 
     def analyze_t2_exclusive(self, rd_hist, t1_size, bin_width, device_config_list):
         MAX_T2_SIZE_GB = 200

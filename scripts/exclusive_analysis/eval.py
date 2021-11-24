@@ -17,13 +17,10 @@ for config_path in pathlib.Path("../../mascots/mtCache/device_config").iterdir()
         DEVICE_LIST.append(json.load(f))
 START_TIME = time.time()
 
-
 PAGE_SIZE = 4096 # 4KB
 ALLOCATION_GRANULARITY = 10*1024*1024 # 10MB
-MAX_TIER1 = 128*1024*1024*1024 # 128GB
-
+MAX_TIER1 = 128*1024*1024*1024 # 256GB
 MAX_TIER1_SIZE = int(MAX_TIER1/ALLOCATION_GRANULARITY)
-
 
 
 def process_t1(rd_hist, t1_size_array, bin_width, device_config_list, output_dir):

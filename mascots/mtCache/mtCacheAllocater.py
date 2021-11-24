@@ -5,184 +5,226 @@ import pandas as pd
 
 class MTCacheAllocater:
 
-    def __init__(self, workload_name_list, device_list, size_list, metric_name):
+    def __init__(self, workload_name_list, device_list, size_list, metric_name, log_file=pathlib.Path("test.csv")):
         self.data_dir = pathlib.Path("/research2/mtc/cp_traces/mascots/exclusive")
         self.workload_name_list = workload_name_list 
+        self.num_workloads = len(workload_name_list)
         self.device_list = device_list 
         self.size_list = size_list 
         self.metric_name = metric_name 
+        self.mt_label = "_".join([_["label"] for _ in self.device_list])
 
-        self.data = {}
+        self.allocation_array = np.zeros(shape=(self.num_workloads, 2), dtype=int)
+
+        self.t1_data = {}
+        self.t2_data = {}
         self.t1_allocation_array = np.zeros(len(self.workload_name_list), dtype=int)
-        self.metric_array = np.zeros(len(self.workload_name_list), dtype=float)
+        self.t2_allocation_array = np.zeros(len(self.workload_name_list), dtype=int)
+        self.t1_lat_reduced_array = np.zeros(len(self.workload_name_list), dtype=float)
+        self.t2_lat_reduced_array = np.zeros(len(self.workload_name_list), dtype=float)
+        self.cost_array = np.zeros(len(self.workload_name_list), dtype=float)
+        self.metric_array = [None]*len(self.workload_name_list)
+        self.t2_metric_array = [None]*len(self.workload_name_list)
+
+        self.log_handle = log_file.open("w+")
 
 
     def run(self):
         self.load_data()
-        max_metric_index = np.argmax(self.metric_name)
-        for i in range(100):
-            self.allocate(max_metric_index)
+        t1_remaining = self.get_t1_remaining()
+        print("T1 Remaining: {}".format(t1_remaining))
+        while t1_remaining > 0:
+            print("T1 Remaining: {}".format(t1_remaining))
+            self.allocate_t1()
+            t1_remaining = self.get_t1_remaining()
+        print("Done with T1!")
 
-
-    def allocate(self, workload_index):
-        self.t1_allocation_array[workload_index] += 1
-        self.metric_array[workload_index] = self.get_metric(workload_index)
-        print(self.t1_allocation_array)
-        print(self.metric_array)
         
+        self.load_t2_data()
+        # t2_remaining = self.get_t2_remaining()
+        # size_allocated = self.allocate_t2()
+        # print("T2 Remaining {} Size Alocated {}".format(t2_remaining, size_allocated))
+        # while ((t2_remaining > 0) and (size_allocated>0)):
+        #     print("T2 Remaining: {}".format(t2_remaining))
+        #     size_allocated = self.allocate_t2()
+        #     t2_remaining = self.get_t2_remaining()
+        #     print("Size Allocated: {}".format(size_allocated))
+
+        # print(self.allocation_array)
 
 
-    def get_metric(self, workload_index):
+    def allocate_t1(self):
+        workload_index = np.argmax([_["lat_red_per_dollar"].item() for _ in self.metric_array])
         workload_name = self.workload_name_list[workload_index]
-        df = self.data[workload_name]["df"]
-        workload_index = self.data[workload_name]["index"]
-        entry = df.iloc[self.t1_allocation_array[workload_index]][self.metric_name]
-        return entry if entry > 0 else -1 
+        allocation_entry = self.metric_array[workload_index]
+        self.allocation_array[workload_index][0] += allocation_entry["t1"].item()
+        self.t1_lat_reduced_array[workload_index] += allocation_entry["d_lat_wb"].item()
+        self.cost_array[workload_index] += allocation_entry["cost"].item()
+        self.update_t1_data(workload_index)
+
+        print("Allocated T1 {} to {}".format(allocation_entry["t1"].item(), workload_name))
+
+        total_cost = np.sum(self.cost_array)
+        total_latency_reduced = np.sum(self.t1_lat_reduced_array)
+        total_t1_size = np.sum(self.allocation_array[:,0])
+        log_string = "{},{},0,{},{},{}\n".format(workload_name, total_t1_size, total_cost, total_latency_reduced, total_latency_reduced/total_cost)
+        self.log_handle.write(log_string)
+
+        for _ in range(len(self.workload_name_list)):   
+            self.update_metric(_)
+
+
+    def get_max_metric_and_workload_index(self, tier_number):
+        max_metric_workload_index = -1
+        max_metric = -1 
+        metric_entry = None 
+
+        if tier_number == 1:
+            metric_array = self.t2_metric_array
+        elif tier_number == 2:
+            metric_array = self.t2_metric_array
+
+        for index, metric in enumerate(metric_array):
+            if type(metric) != int:
+                if metric["d_lat_wb"].item() > max_metric and metric["d_lat_wb"].item()>0:
+                    max_metric = metric["d_lat_wb"].item()
+                    max_metric_workload_index = index 
+                    metric_entry = metric
+
+        return max_metric_workload_index, metric_entry
+
+
+    def allocate_t2(self):
+        workload_index, allocation_entry = self.get_max_metric_and_workload_index(2)
+        if workload_index < 0:
+            return -1 
+        
+        workload_name = self.workload_name_list[workload_index]
+        self.allocation_array[workload_index][1] += allocation_entry["t2"].item()
+        self.t2_lat_reduced_array[workload_index] += allocation_entry["d_lat_wb"].item()
+        self.cost_array[workload_index] += allocation_entry["cost"].item()
+        self.update_t2_data(workload_index)
+
+        # print("Current allocation: {}".format(self.allocation_array[workload_index][1]))
+        print("Allocated T2 {} to {} with dlat {}".format(
+            allocation_entry["t2"].item(), 
+            workload_name, 
+            allocation_entry["d_lat_wb"].item()))
+        # print(allocation_entry)
+
+        total_cost = np.sum(self.cost_array)
+        total_latency_reduced = np.sum(self.t1_lat_reduced_array)
+        total_t1_size = np.sum(self.allocation_array[:,0])
+        total_t2_size = np.sum(self.allocation_array[:,1])
+        log_string = "{},{},{},{},{},{}\n".format(workload_name, total_t1_size, total_t2_size, total_cost, total_latency_reduced, total_latency_reduced/total_cost)
+        self.log_handle.write(log_string)
+
+        for _ in range(len(self.workload_name_list)):   
+            self.update_t2_metric(_)
+
+        return allocation_entry["t2"].item()
 
 
     def load_data(self):
-        cur_cache_size = 1 
-        cache_label = "_".join([_["label"] for _ in self.device_list])
         for workload_index, workload_name in enumerate(self.workload_name_list):
-            workload_data_path = self.data_dir.joinpath(self.data_dir, workload_name, cache_label, "{}.csv".format(cur_cache_size))
-            self.data[workload_name] = {
-                "df": pd.read_csv(workload_data_path),
-                "index": workload_index
+            self.update_t1_data(workload_index)
+            self.update_metric(workload_index)
+
+
+    def load_t2_data(self):
+        for workload_index, workload_name in enumerate(self.workload_name_list):
+            self.update_t2_data(workload_index)
+            self.update_t2_metric(workload_index)
+
+
+    def get_t1_remaining(self):
+        total_t1_allocation = np.sum(self.allocation_array[:,0])
+        t1_remaining = self.size_list[0] - total_t1_allocation
+        return t1_remaining
+
+
+    def get_t2_remaining(self):
+        total_t2_allocation = np.sum(self.allocation_array[:,1])
+        t2_remaining = self.size_list[1] - total_t2_allocation
+        return t2_remaining
+
+
+    def update_metric(self, workload_index):
+        workload_name = self.workload_name_list[workload_index]
+        t1_remaining = self.get_t1_remaining()
+        final_df = self.t1_data[workload_name]["df"]
+        final_df = final_df[final_df["t1"]<=t1_remaining]
+        max_metric = -1
+        if len(final_df):
+            entry = final_df[final_df["lat_red_per_dollar"] == final_df["lat_red_per_dollar"].max()]
+            max_metric = entry["lat_red_per_dollar"].item()
+
+            if max_metric > 0:
+                self.metric_array[workload_index] = entry 
+            else:
+                self.metric_array[workload_index] = -1 
+
+
+    def update_t2_metric(self, workload_index):
+        workload_name = self.workload_name_list[workload_index]
+        t2_remaining = self.get_t2_remaining()
+        final_df = self.t2_data[workload_name]["df"]
+        final_df = final_df[final_df["t2"]<=t2_remaining]
+        max_metric = -1
+        if len(final_df):
+            entry = final_df[final_df["lat_red_per_dollar"] == final_df["lat_red_per_dollar"].max()]
+            max_metric = entry["lat_red_per_dollar"].item()
+
+            if max_metric > 0:
+                self.t2_metric_array[workload_index] = entry
+            else:
+                self.t2_metric_array[workload_index] = -1
+
+    
+    def update_t1_data(self, workload_index, chunksize=100):
+        workload_name = self.workload_name_list[workload_index]
+        t1_remaining = self.get_t1_remaining()
+        cur_t1_allocation = self.allocation_array[workload_index][0]
+        chunksize = min(chunksize, t1_remaining)
+        
+        output_array = []
+        for t1_size in range(cur_t1_allocation+1, cur_t1_allocation+1+chunksize):
+            workload_data_path = self.data_dir.joinpath(self.data_dir, workload_name, self.mt_label, "{}.csv".format(t1_size))
+            if workload_data_path.is_file():
+                df = pd.read_csv(workload_data_path)
+                output_array.append(df.iloc[0])
+
+        final_df = pd.DataFrame(output_array)
+        if len(final_df) > 0:
+            final_df["t1"] -= cur_t1_allocation
+            final_df["d_lat_wb"] -= self.t1_lat_reduced_array[workload_index]
+            final_df["cost"] -= self.cost_array[workload_index]
+            final_df["lat_red_per_dollar"] = final_df["d_lat_wb"]/final_df["cost"]
+            final_df = final_df[final_df["t1"]<=t1_remaining]
+            self.t1_data[workload_name] = {
+                "df": final_df
             }
-            self.metric_array[workload_index] = self.get_metric(workload_index)
 
 
+    def update_t2_data(self, workload_index, chunksize=100):
+        workload_name = self.workload_name_list[workload_index]
+        t2_remaining = self.get_t2_remaining()
+        cur_t2_allocation = self.t2_allocation_array[workload_index]
+        chunksize = min(chunksize, t2_remaining)
+        t1_size = self.allocation_array[workload_index][0]
 
-
-
-
-            
-
-
-
+        workload_data_path = self.data_dir.joinpath(self.data_dir, workload_name, self.mt_label, "{}.csv".format(t1_size))
+        final_df = pd.read_csv(workload_data_path)
+        final_df = final_df[final_df["t2"]>0.0]
+        if len(final_df) > 0:
+            final_df["t2"] -= cur_t2_allocation
+            final_df["d_lat_wb"] -= (self.t2_lat_reduced_array[workload_index] + self.t1_lat_reduced_array[workload_index])
+            final_df["cost"] -= self.cost_array[workload_index]
+            final_df["lat_red_per_dollar"] = final_df["d_lat_wb"]/final_df["cost"]
+            final_df = final_df[final_df["t2"]<=t2_remaining]
+            self.t2_data[workload_name] = {
+                "df": final_df
+            }
 
 
     
-
-
-
-
-
-
-
-
-
-
-
-
-    #     self.workloads = workload_array
-    #     self.devices = device_array
-    #     self.sizes = size_array
-    #     self.sizes_remaining = np.array(size_array, copy=True)
-    #     self.metric = metric_name
-    #     self.device_config_name = "_".join([self.devices[i]["label"] for i in range(3)])
-    #     self.data = {}
-
-    #     self.load_data()
-
-
-    #     # self.config = config 
-    #     # self.tier_size_array = tier_size_array
-    #     # self.tier_size_remaining = np.array(tier_size_array, copy=True)
-    #     # self.metric_name = metric_name
-    #     # self.device_config_name = "{}_{}_{}".format(self.config[0]["label"], self.config[1]["label"], self.config[2]["label"])
-    #     # self.data = {}
-    #     # self.metric_array = np.zeros(len(self.workload_file_list), dtype=float)
-    #     # self.workload_name_array = [None] * len(self.workload_file_list)
-    #     # self.allocation = {}
-    #     # self.load_data()
-    #     # self.main()
-
-
-    # def run(self, cache_name):
-    #     cache_data_dir = self.data_dir("/research2/mtc/cp_traces/mascots/exclusive/{}/{}")
-
-
-    # def load_data(self):
-    #     for workload_index, workload_name in enumerate(self.workloads):
-    #         workload_file_path = self.data_dir.joinpath(workload_name, "{}.csv".format(self.device_config_name))
-    #         self.data[workload_name] = {
-    #             "df": pd.read_csv(workload_file_path,
-    #                 names=["c", "wb_t1", "wb_t2", "wb_lat", "wb_d_lat", "wb_d_lat_per_dollar", \
-    #                     "wt_t1", "wt_t2", "wt_lat", "wt_d_lat", "wt_d_lat_per_dollar"])
-    #         }
-    #         assert(len(self.data[workload_name]["df"])>0)
-
-    #         self.data[workload_name]["df"]["wb_d_lat_abs"] = self.data[workload_name]["df"]["wb_d_lat"] \
-    #             - self.data[workload_name]["df"]["wb_d_lat"].shift(1, fill_value=0.0)
-
-
-    #         print(self.data[workload_name]["df"])
-
-    
-
-
-
-
-
-
-    # def get_metric(self, workload_name, index):
-    #     df = self.data[workload_name]["df"]
-    #     self.data[workload_name]["df"] = df[(df["wb_t1"]<=self.tier_size_remaining[0]) & (df["wb_t2"]<=self.tier_size_remaining[1])]
-    #     return self.data.iloc[index][self.metric_name]
-
-
-    # def allocate_cache(self, max_entry_index):
-    #     workload_name = self.workload_name_array[max_entry_index]
-    #     df = self.data[workload_name]["df"]
-
-    #     if workload_name not in self.allocation:
-    #         allocation_entry = df.iloc[0]
-    #         self.tier_size_remaining[0] -= allocation_entry["wb_t1"]
-    #         self.tier_size_remaining[1] -= allocation_entry["wb_t2"]
-    #     else:
-    #         prev_allocation_entry = self.allocation[workload_name]
-    #         allocation_entry = df.iloc[int(self.allocation[workload_name]["c"])]
-    #         self.tier_size_remaining[0] -= allocation_entry["wb_t1"] - prev_allocation_entry["t1"]
-    #         self.tier_size_remaining[1] -= allocation_entry["wb_t2"] - prev_allocation_entry["t2"]
-        
-    #     self.allocation[workload_name] = {
-    #         "t1": allocation_entry["wb_t1"],
-    #         "t2": allocation_entry["wb_t2"],
-    #         "c": allocation_entry["c"]
-    #     }
-
-    #     self.data[workload_name]["df"] = df[(df["wb_t1"]<=self.tier_size_remaining[0]) & (df["wb_t2"]<=self.tier_size_remaining[1])]
-
-    #     self.metric_array[max_entry_index] = self.get_max_metric(workload_name)
-
-
-    # # def load_data(self):
-
-    # #     workload_name_array = []
-    # #     for workload_index, workload_name in enumerate(self.workload_file_list):
-    # #         workload_file_path = self.cost_data_dir.joinpath(workload_name, "{}.csv".format(self.device_config_name))
-    # #         self.workload_name_array[workload_index] = workload_name
-    # #         print("Loading {}".format(workload_name))
-    # #         self.data[workload_name] = {
-    # #             "df": pd.read_csv(workload_file_path,
-    # #                 names=["c", "wb_t1", "wb_t2", "wb_lat", "wb_d_lat", "wb_d_lat_per_dollar", "wt_t1", "wt_t2", "wt_lat", "wt_d_lat", "wt_d_lat_per_dollar"])
-    # #         }
-    # #         assert(len(self.data[workload_name]["df"])>0)
-    # #         self.data[workload_name]["df"]["wb_d_lat_abs"] = self.data[workload_name]["df"]["wb_d_lat"]-self.data[workload_name]["df"]["wb_d_lat"].shift(1, fill_value=0.0)
-    # #         self.metric_array[workload_index] = self.get_max_metric(workload_name)
-        
-        
-    # #     print("Data Loaded!")
-
-
-    # def main(self):
-    #     for i in range(10):
-    #         print("remaining size ", self.tier_size_remaining)
-    #         max_entry_index = np.argmax(self.metric_array)
-    #         self.allocate_cache(max_entry_index)
-    #         print("remaining size ", self.tier_size_remaining)
-    #         print(self.allocation)
-
-
-

@@ -1,14 +1,15 @@
 [{
     "name": "DRAM",
     "label": "D1",
-    "read_lat": 0.0000755,
-    "write_lat": 0.0000755,
-    "price": 0.000026112,
-    "product": "Corsair Vengeance LPX DDR4 3000 C15 2x8GB",
-    "ref": "https://ram.userbenchmark.com/Corsair-Vengeance-LPX-DDR4-3000-C15-2x8GB/Rating/3546",
+    "read_lat": 0.0000627,
+    "write_lat": 0.0000627,
+    "price": 0.00003584,
+    "product": "G.SKILL TridentZ Series 16GB",
+    "ref": "https://ram.userbenchmark.com/GSKILL-Trident-Z-DDR4-3600-C17-2x8GB/Rating/3563",
+    "price_ref": "https://www.amazon.com/G-Skill-TridentZ-288-Pin-3600MHz-F4-3600C17D-16GTZR/dp/B01N4V82FW/ref=sr_1_1?dchild=1&keywords=G.SKILL+TridentZ+Series+16GB+3600+C17&qid=1624663008&s=electronics&sr=1-1",
     "size": 16,
-    "cost": 102,
-    "date": "06/10/2021"
+    "cost": 140,
+    "date": "06/25/2021"
 },
 {
     "name": "SSD",
