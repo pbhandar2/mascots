@@ -1,3 +1,5 @@
+
+
 class TraceAnalysis:
 
     def __init__(self, trace_path):

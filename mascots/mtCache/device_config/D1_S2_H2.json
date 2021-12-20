@@ -1,0 +1,38 @@
+[{
+    "name": "DRAM",
+    "label": "D1",
+    "read_lat": 0.0000627,
+    "write_lat": 0.0000627,
+    "price": 0.00003584,
+    "product": "G.SKILL TridentZ Series 16GB",
+    "ref": "https://ram.userbenchmark.com/GSKILL-Trident-Z-DDR4-3600-C17-2x8GB/Rating/3563",
+    "price_ref": "https://www.amazon.com/G-Skill-TridentZ-288-Pin-3600MHz-F4-3600C17D-16GTZR/dp/B01N4V82FW/ref=sr_1_1?dchild=1&keywords=G.SKILL+TridentZ+Series+16GB+3600+C17&qid=1624663008&s=electronics&sr=1-1",
+    "size": 16,
+    "cost": 140,
+    "date": "06/25/2021"
+},
+{
+    "name": "SSD",
+    "label": "S2",
+    "read_lat": 0.976,
+    "write_lat": 3.51,
+    "product": "Seagate IronWolf 125 SSD 500GB NAS Internal Solid State Drive - 2.5 Inch SATA", 
+    "ref": "https://www.storagereview.com/review/seagate-ironwolf-125-ssd-review",
+    "price_ref": "https://www.amazon.com/Seagate-IronWolf-500GB-Internal-Solid/dp/B08FNZ92SS",
+    "price": 6.5536e-7,
+    "cost": 80,
+    "size": 500, 
+    "date": "06/10/2021"
+},
+{
+    "name": "HDD",
+    "label": "H2",
+    "read_lat": 5.5,
+    "write_lat": 5.5,
+    "product": "Toshiba MK7559GSXP - 750 GB - SATA-300 Series", 
+    "ref": "https://www.cnet.com/products/toshiba-mk7559gsxp-hard-drive-750-gb-sata-300-series/",
+    "price_ref": "https://www.amazon.com/dp/B003YGEPHG/ref=asc_df_B003YGEPHG1623495600000?tag=cnet_mp-pc-20&creative=395261&creativeASIN=B003YGEPHG&linkCode=asn&ascsubtag=8fd4396218f6422585aab0bbd6f9ae16%7Ca6fceb90-cc08-11eb-8adc-055432a91124%7Cdtp",
+    "price": 0,
+    "cost": 62.5,
+    "date": "06/10/2021"
+}]

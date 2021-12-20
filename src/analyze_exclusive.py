@@ -44,7 +44,7 @@ def plot_3d_surface(df, x_label, y_label, z_label, output_path):
     plt.rcParams.update({'font.size': 25})
     ax = plt.subplot(1,1,1, projection='3d')
 
-    surf = ax.plot_trisurf(df[x_label], df[y_label], np.log(df[z_label]), cmap=cm.coolwarm, norm=matplotlib.colors.LogNorm())
+    surf = ax.plot_trisurf(df[x_label], df[y_label], np.log(df[z_label]), cmap=plt.cm.jet, norm=matplotlib.colors.LogNorm())
     fig.colorbar(surf)
 
     ax.set_xlabel(db_label_to_plt_label[x_label], labelpad=22)
@@ -55,6 +55,8 @@ def plot_3d_surface(df, x_label, y_label, z_label, output_path):
     plt.close()
 
 
+
+
 def plot_scatter_3d(main_df, x_label, y_label, z_label, output_file_name):
     for sample_rate in [1,5,10,25,50,75,100]:
         df = main_df.nlargest(int(len(main_df)*(sample_rate/100)), z_label)
@@ -63,8 +65,8 @@ def plot_scatter_3d(main_df, x_label, y_label, z_label, output_file_name):
         ax = plt.subplot(1,1,1, projection='3d')
 
         c = np.arange(len(df))/len(df)  # create some colours
-        p = ax.scatter(df[x_label], df[y_label], df[z_label], 
-            alpha=0.5, c=c, cmap=plt.cm.magma)
+        p = ax.scatter(df[x_label], df[y_label], np.log(df[z_label]), 
+            alpha=0.2, c=c, cmap=plt.cm.magma, norm=matplotlib.colors.LogNorm())
         
         ax.set_xlabel(db_label_to_plt_label[x_label], labelpad=22)
         ax.set_ylabel(db_label_to_plt_label[y_label], labelpad=22)
@@ -79,14 +81,14 @@ def plot_scatter_3d(main_df, x_label, y_label, z_label, output_file_name):
 
 def main(data_path):
     df = pd.read_csv(data_path, 
-        names=["c", "t1", "t2", "t1_r", "t1_w", "t2_r", "t2_w", "m_r", "m_w", "mean_lat", "hit_rate", "cost", "p_d"])
+        names=["c", "t1", "t2", "lat_wb", "lat_wt", "hit_rate", "cost"])
     
     # remove values where there is no T1 or T2 cache 
     indexNames = df[(df["t1"]==0) & (df["t2"]==0)].index
     df.drop(indexNames , inplace=True)
 
     print("Plotting 3D surface ..... {}".format(data_path))
-    plot_3d_surface((df, "t1", "t2", "p_d", "p_{}.png".format(data_path.stem)))
+    plot_3d_surface(df, "t1", "t2", "p_d", "p_{}.png".format(data_path.stem))
     plot_scatter_3d(df, "t1", "t2", "p_d", "s_p_{}.png".format(data_path.stem))
 
     
