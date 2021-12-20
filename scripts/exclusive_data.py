@@ -16,8 +16,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate exclusive cache analysis data for a given workload.")
     parser.add_argument("rd_hist_path", type=pathlib.Path, 
         help="The path to the RD histogram of a workload")
-    parser.add_argument("--b", type=int, default=2560, 
-        help="The bin width of the histogram. Default: 2560 (equals 10MB if block size is 4KB)")
+    parser.add_argument("--b", type=int, default=256, 
+        help="The bin width of the histogram. Default: 256 (equals 1MB if block size is 4KB)")
     parser.add_argument("--o", type=pathlib.Path, default="/research2/mtc/cp_traces/exclusive_data/4k",
         help="The directory to output the data. A new folder for the workload will be created and files generated inside.")
     parser.add_argument("--c", type=pathlib.Path, default="../mascots/mtCache/device_config",
