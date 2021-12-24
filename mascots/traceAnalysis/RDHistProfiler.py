@@ -10,7 +10,7 @@ class RDHistProfiler:
         ------
         rd_hist_file_path: path to the RD histogram file (str)
         """
-        
+
         self.file = pathlib.Path(rd_hist_file_path)
 
         self.data = np.loadtxt(rd_hist_file_path, delimiter=",", dtype=int)
@@ -131,13 +131,37 @@ class RDHistProfiler:
         are ignored in write-back caches as it is assumed to be done async so 
         doesn't add to the latency. 
         """
+
         lat_array = self.two_tier_exclusive_wb(mt_config)
         for i in range(len(mt_config)):
             lat_array[i][1] += self.config[-1]["write_lat"]
         return lat_array
 
 
-    def cost_eval_exclusive(self, mt_config, write_policy, output_dir, cost, cache_unit_size):
+    def cost_eval_exclusive(self, mt_config, write_policy, cost, cache_unit_size):
+        """ Evaluate various cache configuration of a given cost and MT cache configuration. 
+
+        Params
+        ------
+        mt_config: JSON object containing the device properties (JSON)
+        write_policy: write policy of the MT cache (str)
+        cost: the cost of the cache (float)
+        cache_unit_size: the unit size of cache allocation (int)
+
+        Returns
+        -------
+        mt_cache_info: JSON containing the following keys: 
+            cost: cost of the cache 
+            st_t1: tier 1 size of ST cache (int)
+            st_lat: mean latency of the ST cahce (float)
+            mt_p_t1: tier 1 size of pyramidal MT cache (int)
+            mt_p_t2: tier 2 size of pyramidal MT cahce (int)
+            mt_p_lat: mean latency of pyramidal MT cache (float)
+            mt_np_t1: tier 1 size of non-pyramidal MT cache (int)
+            mt_np_t2: tier 2 size of non-pyramidal MT cache (int)
+            mt_np_lat: mean latency of non-pyramidal MT cache (float)
+        """
+
         if write_policy == "wb":
             lat_array = self.two_tier_exclusive_wb(mt_config)
         elif write_policy == "wt":
@@ -145,99 +169,70 @@ class RDHistProfiler:
         else:
             raise ValueError
 
-        mt_py_config, mt_npy_config = [0,0], [0,0]
-        mt_py_lat, mt_npy_lat = math.inf, math.inf 
+        mt_p_config, mt_np_config = [0,0], [0,0]
+        mt_p_lat, mt_np_lat, st_lat = math.inf, math.inf, math.inf
 
         """ For the given cost, find 
             1. The latency and size of an ST cache. 
             2. The latency and sizes of the best pyramidal MT cache 
             3. The latency and sizes of the best non-pyramidal MT cache if it exists 
         """
-        max_t1_size = math.floor(cost/mt_config[0]["price"])
+        max_t1_size = math.floor(cost/(mt_config[0]["price"]*cache_unit_size))
         for t1_size in range(1, max_t1_size+1):
             t1_cost = t1_size * cache_unit_size * mt_config[0]["price"]
             t2_cost = cost - t1_cost 
             t2_size = math.floor(t2_cost/(mt_config[1]["price"]*cache_unit_size))
-            mean_lat = self.get_mt_mean_latency(t1_size, t2_size, lat_array)
+            mean_lat = self.get_mt_mean_latency(t1_size*cache_unit_size, t2_size*cache_unit_size, lat_array)
 
             if t1_size < t2_size:
-                if mean_lat < mt_py_lat:
-                    mt_py_config = [t1_size, t2_size]
-                    mt_py_lat = mean_lat 
+                if mean_lat < mt_p_lat:
+                    mt_p_config = [t1_size, t2_size]
+                    mt_p_lat = mean_lat 
             else:
-                if mean_lat < mt_npy_lat:
-                    mt_npy_config = [t1_size, t2_size]
-                    mt_npy_lat = mean_lat 
-
-        else:
-            pass 
-
-
-
-
+                if mean_lat < mt_np_lat:
+                    mt_np_config = [t1_size, t2_size]
+                    mt_np_lat = mean_lat 
             
+            # if the ST cache has already been evaluated then break;
+            if t1_size == max_t1_size and t2_size == 0:
+                st_lat = mean_lat
+                break
+        else:
+            # since ST cahce has not been compute, evaluate the ST cache 
+            mean_lat = self.get_mt_mean_latency(t1_size, t2_size, lat_array)
+            st_lat = mean_lat
+        
+        return {
+            "cost": cost,
+            "st_t1": max_t1_size,
+            "st_lat": st_lat,
+            "mt_p_t1": mt_p_config[0],
+            "mt_p_t2": mt_p_config[1],
+            "mt_p_lat": mt_p_lat,
+            "mt_np_t1": mt_np_config[0],
+            "mt_np_t2": mt_np_config[1],
+            "mt_np_lat": mt_np_lat
+        }
 
 
+    def plot_mrc(self, plot_path, max_cache_size=-1):
+        """ Plot MRC of the RD histogram
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-    def get_report(self, mt_list, output_dir):
-        # for each mt cache setup a directory of output in output_dir
-
-        for mt_cache in mt_list:
-            output_dir = pathlib.Path(output_dir)
-            # get the mt cache tag or name 
-            # create the directory 
-            pass
-
-
-
-        # max size of T1
-        max_t1_size = 100
-        for i in range(1, max_t1_size+1):
-            pass 
-
-        pass 
-
-
-    def plot_mrc(self, cache_size, output_file_path):
-        """ Plot MRC from the reuse distance histogram 
+        Params
+        ------
+        plot_path: output path (str)
+        max_cache_size: max cache size (defaults to -1) (optional) (int)
         """
         pass 
 
 
-    def get_size_for_miss_rate(self, miss_rate):
-        """ The size of cache required to meet the miss rate provided. If miss rate can't be met, 
-            the best possible case is returned. 
-        """
-        pass
+    def plot_mt_mrc(self, t1_size, plot_path, max_cache_size=-1):
+        """ Plot MT MRC of the RD histogram for a given T1 size 
 
-
-    def get_miss_rate(self, cache_size):
-        """ Get the miss rate for a given cache size. 
+        Params
+        ------
+        t1_size: size of Tier 1 (int)
+        plot_path: output path (str)
+        max_cache_size: max cache size (defaults to -1) (optional) (int)
         """
-        pass
+        pass 
