@@ -16,6 +16,18 @@ class OpCode127Error(Error):
     pass
 
 
+def csv_to_page_trace(csv_file_path, page_trace_path, page_size):
+    """ Generates a page trace from CSV block trace 
+
+    Params
+    ------
+    csv_file_path: path of the input CSV trace file (str)
+    page_trace_path: path of the output page trace file (str)
+    page_size: the size of a page in the cache in bytes (int)
+    """
+    pass
+
+
 def setup_mimircache_for_raw_trace(vscsi_file_path, vscsi_type):
     """ Return a Mimircache for the correct VSCSI type. 
 
