@@ -29,8 +29,6 @@ if __name__ == "__main__":
         help="Whether the path is a RAM disk.")
     args = parser.parse_args()
 
-    print(args.is_ram_disk)
-
-    # create_output_dirs(args.job_dir, args.log_dir, args.io_dir)
-    # benchmark = LocalBench(args.name, args.job_dir, args.io_dir, args.log_dir, is_ram_disk=args.is_ram_disk)
-    # benchmark.run()
+    create_output_dirs(args.job_dir, args.log_dir, args.io_dir)
+    benchmark = LocalBench(args.name, args.job_dir, args.io_dir, args.log_dir, is_ram_disk=args.is_ram_disk)
+    benchmark.run()
