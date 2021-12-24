@@ -25,8 +25,8 @@ if __name__ == "__main__":
     parser.add_argument("--io_dir", type=pathlib.Path, 
         default=IO_DIR, help="Path to perform IO. The device to be benchmark should \
             be mounted to this path.")
-    parser.add_argument("--is_ram_disk", type=bool, 
-        default=False, help="Whether the path is a RAM disk.")
+    parser.add_argument("--is_ram_disk", action='store_false', 
+        help="Whether the path is a RAM disk.")
     args = parser.parse_args()
 
     create_output_dirs(args.job_dir, args.log_dir, args.io_dir)
