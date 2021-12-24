@@ -25,10 +25,12 @@ if __name__ == "__main__":
     parser.add_argument("--io_dir", type=pathlib.Path, 
         default=IO_DIR, help="Path to perform IO. The device to be benchmark should \
             be mounted to this path.")
-    parser.add_argument("--is_ram_disk", action='store_false', 
+    parser.add_argument("--is_ram_disk", action='store_true', 
         help="Whether the path is a RAM disk.")
     args = parser.parse_args()
 
-    create_output_dirs(args.job_dir, args.log_dir, args.io_dir)
-    benchmark = LocalBench(args.name, args.job_dir, args.io_dir, args.log_dir, is_ram_disk=args.is_ram_disk)
-    benchmark.run()
+    print(args.is_ram_disk)
+
+    # create_output_dirs(args.job_dir, args.log_dir, args.io_dir)
+    # benchmark = LocalBench(args.name, args.job_dir, args.io_dir, args.log_dir, is_ram_disk=args.is_ram_disk)
+    # benchmark.run()
