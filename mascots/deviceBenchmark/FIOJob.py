@@ -3,6 +3,22 @@ import subprocess
 
 class FIOJob:
     def __init__(self, fio_job_file):
+        """
+        The class runs a given FIO job and returns the output. 
+
+        ...
+
+        Attributes
+        ----------
+        fio_job_file : str
+            Path of the FIO job file to be run 
+
+        Methods
+        -------
+        run(self, log_output_file="")
+            Run the FIO job and write the output to the provided file. 
+        """
+
         self.job_file = pathlib.Path(fio_job_file)
 
     def run(self, log_output_file=""):

@@ -1,0 +1,15 @@
+{
+    "output_path": "/research2/mtc/cp_traces/merge_csv_traces/w81-w85.csv",
+    "lba_size": 512,
+    "page_size": 4096,
+    "file_list": [{
+        "path": "/research2/mtc/cp_traces/csv_traces/w81.csv",
+        "min_lba": 0,
+        "range_gb": 25
+        },
+        {
+        "path": "/research2/mtc/cp_traces/csv_traces/w85.csv",
+        "min_lba": 0,
+        "range_gb": 29
+    }]
+}

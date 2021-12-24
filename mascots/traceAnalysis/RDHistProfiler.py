@@ -1,4 +1,5 @@
-import pathlib 
+import pathlib
+import math  
 import numpy as np 
 
 class RDHistProfiler:
@@ -44,6 +45,100 @@ class RDHistProfiler:
         cache_hits = self.get_exclusive_cache_hits(t1_size, t2_size)
         total_latency = np.sum(np.multiply(cache_hits, lat_array))
         return total_latency/self.req_count
+
+
+    def cost_eval_exclusive(self, mt_config, write_policy, output_dir, cost, cache_unit_size):
+        if write_policy == "wb":
+            lat_array = self.two_tier_exclusive_wb(mt_config)
+        elif write_policy == "wt":
+            lat_array = self.two_tier_exclusive_wb(mt_config)
+        else:
+            raise ValueError
+
+        max_t1_size = math.floor(cost/mt_config[0]["price"])
+        for t1_size in range(1, max_t1_size+1):
+            t1_cost = t1_size * cache_unit_size * mt_config[0]["price"]
+            t2_cost = cost - t1_cost 
+            t2_size = math.floor(t2_cost/(mt_config[1]["price"]*cache_unit_size))
+            wb_mean_lat = self.get_mt_mean_latency(t1_size, t2_size, wb_lat_array)
+            wt_mean_lat = self.get_mt_mean_latency(t1_size, t2_size, wt_lat_array)
+
+
+
+
+            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def two_tier_exclusive_wb(self, mt_config):
+        lat_array = np.zeros([2, len(mt_config)], dtype=float) 
+
+        # tier 1 latency 
+        lat_array[0][0] = mt_config[0]["read_lat"]
+        lat_array[0][1] = mt_config[0]["write_lat"] 
+
+        # tier 2 latency 
+        lat_array[1][0] = mt_config[1]["read_lat"] + mt_config[0]["write_lat"] \
+            + mt_config[0]["read_lat"] + mt_config[1]["write_lat"]
+        lat_array[1][1] = self.config[0]["write_lat"] + mt_config[0]["read_lat"] \
+            + mt_config[1]["write_lat"] 
+
+        # miss latency 
+        lat_array[2][0] = mt_config[-1]["read_lat"] + mt_config[0]["write_lat"] \
+            + mt_config[0]["read_lat"] + mt_config[1]["write_lat"]
+        lat_array[2][1] = mt_config[0]["write_lat"] \
+            + mt_config[0]["read_lat"] + mt_config[1]["write_lat"]
+
+        return lat_array
+
+
+    def two_tier_exclusive_wt(self, mt_config):
+        lat_array = self.two_tier_exclusive_wb(mt_config)
+        for i in range(len(mt_config)):
+            lat_array[i][1] += self.config[-1]["write_lat"]
+        return lat_array
+
+    
+    def get_report(self, mt_list, output_dir):
+        # for each mt cache setup a directory of output in output_dir
+
+        for mt_cache in mt_list:
+            output_dir = pathlib.Path(output_dir)
+            # get the mt cache tag or name 
+            # create the directory 
+            pass
+
+
+
+        # max size of T1
+        max_t1_size = 100
+        for i in range(1, max_t1_size+1):
+            pass 
+
+        pass 
 
 
     def plot_mrc(self, cache_size, output_file_path):
