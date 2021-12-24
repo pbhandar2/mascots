@@ -52,7 +52,7 @@ class FIOJobFile:
         self.direct = direct
         self.ioengine = ioengine
 
-    def write_to_file(self, output_path):
+    def write_to_file(self, output_path, direct_io=True):
         """ Write the parameters as an FIO jobfile. 
 
         Parameters
@@ -70,4 +70,6 @@ class FIOJobFile:
             f.write("io_size={}MB\n".format(self.total_io_size))
             f.write("filesize={}GB\n".format(self.filesize))
             f.write("percentage_random={}\n".format(self.percentage_random))
-            f.write("direct={}\n".format(self.direct))
+
+            if direct_io:
+                f.write("direct={}\n".format(self.direct))
