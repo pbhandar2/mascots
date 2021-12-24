@@ -3,13 +3,7 @@ import logging
 
 from PyMimircache import Cachecow
 
-
-class Error(Exception):
-    """Base class for other exceptions"""
-    pass
-
-
-class OpCode127Error(Error):
+class OpCode127Exception(Exception):
     """Raised when the OP code in the binary trace is 127. 
     The problem is that the op code 127 can be for both 
     read and write, not clear how to handle. """
@@ -19,11 +13,14 @@ class OpCode127Error(Error):
 def csv_to_page_trace(csv_file_path, page_trace_path, page_size):
     """ Generates a page trace from CSV block trace 
 
-    Params
-    ------
-    csv_file_path: path of the input CSV trace file (str)
-    page_trace_path: path of the output page trace file (str)
-    page_size: the size of a page in the cache in bytes (int)
+    Parameters
+    ----------
+    csv_file_path : str
+        path of the input CSV trace file 
+    page_trace_path : str
+        path of the output page trace file 
+    page_size : int 
+        the size of a page in the cache in bytes
     """
     pass
 
@@ -31,14 +28,17 @@ def csv_to_page_trace(csv_file_path, page_trace_path, page_size):
 def setup_mimircache_for_raw_trace(vscsi_file_path, vscsi_type):
     """ Return a Mimircache for the correct VSCSI type. 
 
-    Params
-    ------
-    vscsi_file_path: path of the input vscsi binary trace file (str)
-    vscsi_type: the type of VSCSI trace (either 1 or 2)
+    Parameters
+    ----------
+    vscsi_file_path : str
+        path of the input vscsi binary trace file 
+    vscsi_type : int
+        the type of VSCSI trace (either 1 or 2)
 
     Return
     ------
-    mimircache: a Cachecow object with the VSCSI trace loaded 
+    mimircache : obj
+        a Cachecow object with the VSCSI trace loaded 
     """
 
     assert(vscsi_type==1 or vscsi_type==2)
@@ -50,11 +50,14 @@ def setup_mimircache_for_raw_trace(vscsi_file_path, vscsi_type):
 def vscsi_to_csv(vscsi_file_path, csv_file_path, block_size=512):
     """ Generates a CSV trace from a VSCSI binary trace file 
 
-    Params
-    ------
-    vscsi_file_path: path of the input vscsi binary trace file (str)
-    csv_file_path: path of the output CSV trace file (str)
-    block_size: the size of an LBA (int) (optional) (default is 512)
+    Parameters
+    ----------
+    vscsi_file_path : str
+        path of the input vscsi binary trace file 
+    csv_file_path : str
+        path of the output CSV trace file 
+    block_size : int, optional
+        the size of an LBA in bytes (default is 512)
     """
 
     logging.info("vscsi_to_csv({}, {})".format(
@@ -98,7 +101,7 @@ def vscsi_to_csv(vscsi_file_path, csv_file_path, block_size=512):
                 can be for both read and write. Warn the user!  
             """
             if op_code == 127:
-                raise OpCode127Error
+                raise OpCode127Exception
 
             if op_code in READ_OP_CODES:
 
@@ -120,7 +123,7 @@ def vscsi_to_csv(vscsi_file_path, csv_file_path, block_size=512):
 
             write_file_handle.write("{},{},{},{}\n".format(time_ms, lba, io_type, size))
             io = reader.read_complete_req()
-        except OpCode127Error:
+        except OpCode127Exception:
             logging.warning("OP code 127 encounted! It can be both read or write, not sure how to handle. Ignoring ... ")
             io = reader.read_complete_req()
     

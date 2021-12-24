@@ -25,7 +25,8 @@ class LocalBench:
         log_dir : str
             directory where the output FIO logs are stored 
         is_ram_disk : bool, optional 
-            flag to identify RAM disk evaluation (this disables direct I/O)
+            flag to identify RAM disk evaluation 
+            (this disables direct I/O) (default is False)
 
         Methods
         -------
@@ -107,6 +108,3 @@ class LocalBench:
                             logging.info("Done! Evaluating {}".format(job_path))
                         else:
                             logging.warning("Failed! Evaluating {}".format(job_path))
-
-
-                        

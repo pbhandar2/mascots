@@ -1,8 +1,12 @@
 import pathlib, math 
 import numpy as np 
+import matplotlib.pyplot as plt
+import logging 
+logging.basicConfig(format='%(asctime)s,%(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
 
 class RDHistProfiler:
-    def __init__(self, rd_hist_file_path):  
+    def __init__(self, rd_hist_file_path, page_size=4096):  
         """ RDHistProfiler class allows users to perform analysis on a RD Hist 
         object which represents a workload. 
 
@@ -11,6 +15,7 @@ class RDHistProfiler:
         rd_hist_file_path: path to the RD histogram file (str)
         """
 
+        self.page_size = page_size
         self.file = pathlib.Path(rd_hist_file_path)
 
         self.data = np.loadtxt(rd_hist_file_path, delimiter=",", dtype=int)
@@ -20,9 +25,13 @@ class RDHistProfiler:
         self.read_count = self.data[:, 0].sum() + self.cold_miss[0]
         self.write_count = self.data[:, 1].sum() + self.cold_miss[1]
         self.req_count = self.read_count + self.write_count 
-        self.hrc = self.data/self.req_count
+        self.hrc = self.data.cumsum()/self.req_count
         self.mrc = 1-self.hrc 
         self.max_cache_size = len(self.data) - 1 
+
+
+    def get_page_cost(self, mt_config, index):
+        return self.page_size*mt_config[index]["cost"]/(mt_config[index]["size"]*1024*1024*1024)
 
 
     def get_exclusive_cache_hits(self, t1_size, t2_size):
@@ -177,7 +186,8 @@ class RDHistProfiler:
             2. The latency and sizes of the best pyramidal MT cache 
             3. The latency and sizes of the best non-pyramidal MT cache if it exists 
         """
-        max_t1_size = math.floor(cost/(mt_config[0]["price"]*cache_unit_size))
+        t1_page_cost = self.get_page_cost(mt_config, 0)
+        max_t1_size = math.floor(cost/(t1_page_cost*cache_unit_size))
         for t1_size in range(1, max_t1_size+1):
             t1_cost = t1_size * cache_unit_size * mt_config[0]["price"]
             t2_cost = cost - t1_cost 
@@ -215,15 +225,36 @@ class RDHistProfiler:
         }
 
 
-    def plot_mrc(self, plot_path, max_cache_size=-1):
+    def plot_mrc(self, plot_path, max_cache_size=-1, num_x_labels=10):
         """ Plot MRC of the RD histogram
 
         Params
         ------
         plot_path: output path (str)
         max_cache_size: max cache size (defaults to -1) (optional) (int)
+        num_x_labels: number of xlabels (defaults to 10) (optional) (int)
         """
-        pass 
+        
+        plot_path = pathlib.Path(plot_path)
+        len_mrc = len(self.mrc) if max_cache_size == -1 else min(len(self.mrc), max_cache_size)
+        fig, ax = plt.subplots(figsize=(14,7))
+        ax.plot(self.mrc)
+        x_ticks = np.linspace(0, len_mrc, num=num_x_labels, dtype=int)
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels(["{}".format(int(_*self.page_size/(1024*1024))) for _ in x_ticks])
+        ax.set_xlabel("Cache Size (MB)")
+        ax.set_ylabel("Miss Rate")
+        ax.set_title("Workload: {}, Read Cold Miss Rate: {:.3f} \n Ops: {:.1f}M Total IO: {}GB Write: {:.1f}%".format(
+            plot_path.stem, 
+            self.cold_miss[0]/self.read_count,
+            self.req_count/1e6,
+            math.ceil(self.req_count*self.page_size/(1024*1024*1024)),
+            self.write_count/self.req_count))
+
+        plt.tight_layout()
+        plt.savefig(plot_path)
+        plt.close()
+
 
 
     def plot_mt_mrc(self, t1_size, plot_path, max_cache_size=-1):

@@ -21,7 +21,15 @@ class FIOJob:
 
         self.job_file = pathlib.Path(fio_job_file)
 
+
     def run(self, log_output_file=""):
+        """ Run the FIO job. 
+
+        Parameters
+        ----------
+        log_output_file : str, optional 
+            Path of the output JSON file (default is "")
+        """
         fio_cmd = ["fio", self.job_file.resolve()]
         if log_output_file != "":
             fio_cmd.append("--output-format=json")

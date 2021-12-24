@@ -3,8 +3,44 @@ import numpy as np
 from mascots.blockReader.CPReader import CPReader
 
 class Merger:
-    
+
     def __init__(self, config_file):
+        """
+        This class merges multiple block traces.
+
+        ...
+
+        Attributes
+        ----------
+        config : obj
+            JSON configuration of the merger 
+        num_files : int
+            the number of files being merged 
+        path_list : list 
+            list of block traces paths being merged 
+        reader_list : list
+            list of Reader object for each block trace 
+        req_list : list 
+            list of current request for each block trace 
+        start_time_list : list 
+            list of start time of each block trace 
+        cur_time_list : list 
+            list of time of the next request of each block trace 
+        offset_list : list 
+            list of global starting offset of each block trace 
+        range_gb : int 
+            range of IO in GB 
+        range_list : list
+            list of ranges of each block trace 
+        min_lba_list : list 
+            list of minimum LBA accessed in each block trace 
+
+        Methods
+        -------
+        sanity_check(self)
+            Check the paths and load the initial data. 
+        """
+
         self.config = json.load(open(config_file))
         self.num_files = len(self.config["file_list"])
         self.path_list = [None] * self.num_files
@@ -13,8 +49,6 @@ class Merger:
         self.start_time_list = [math.inf] * self.num_files
         self.cur_time_list = [math.inf] * self.num_files
         self.offset_list = [0] * self.num_files
-
-        self.start_time = -1
 
         self.range_gb = 0 
         self.range_list = [0] * self.num_files
