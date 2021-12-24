@@ -78,7 +78,7 @@ class LocalBench:
         """
 
         jobfile = FIOJobFile(self.name, self.io_dir, io_type, seq_percent, req_size, self.total_io_mb, self.filesize_gb)
-        jobfile.write_to_file(job_path, direct_io=~self.is_ram_disk)
+        jobfile.write_to_file(job_path, direct_io= not self.is_ram_disk)
 
 
     def run(self, mode="rwonly"):
