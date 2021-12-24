@@ -67,10 +67,10 @@ def vscsi_to_csv(vscsi_file_path, csv_file_path, block_size=512):
     io = reader.read_complete_req() 
     while io is not None:
         try:
-            # index of size and op_code (VSCSI op_code) are different in type 1 and 2 
             """
-                VSCSI Type 1: X, size, X, op code, X, LBA, time milliseconds 
-                VSCSI Type 2: op_code, X, 
+                X: unknown field 
+                VSCSI Type 1: X, size, X, op code, X, LBA, time (milliseconds)
+                VSCSI Type 2: op_code, X, X, size, X, LBA, time (milliseconds)
             """
             if vscsi_type == 1:
                 size = int(io[1])
@@ -78,15 +78,12 @@ def vscsi_to_csv(vscsi_file_path, csv_file_path, block_size=512):
             else:
                 size = int(io[3])
                 op_code = int(io[0])
-
             lba = io[5]
             time_ms = int(io[6])
 
             """
-                Refer to the VSCSI manual. The problem is that the op code 127 can be for 
-                both read and write. Therefore, if we find an entry with that op code in a
-                trace, we require the user to handle that and make it clear weather it was a
-                read or a write by manually changing it. 
+                Refer to the VSCSI manual. The problem is that the OP code 127 
+                can be for both read and write. Warn the user!  
             """
             if op_code == 127:
                 raise OpCode127Error
@@ -112,6 +109,7 @@ def vscsi_to_csv(vscsi_file_path, csv_file_path, block_size=512):
             write_file_handle.write("{},{},{},{}\n".format(time_ms, lba, io_type, size))
             io = reader.read_complete_req()
         except OpCode127Error:
-            print("OP code 127 encounted! It can be both read or write, not sure how to handle.")
+            logging.warning("OP code 127 encounted! It can be both read or write, not sure how to handle. Ignoring ... ")
+            io = reader.read_complete_req()
     
     write_file_handle.close()
