@@ -7,6 +7,46 @@ class MTGenerator:
     def __init__(self, mt_name, mt_dir):
         """ This class allows users to generate static MT cache configurations from FIO measurements 
             generated using the LocalBench class. 
+
+        Attributes
+        ----------
+        name : str
+            the name used to identify the run 
+        mt_dir : str
+            the path to the directory containing system measurements 
+        min_quantile : float 
+            the minimum percentile of the performance to be used when generating MT configuratons 
+        max_quantile : float 
+            the minimum percentile of the performance to be used when generating MT configuratons 
+        t1_read_df : DataFrame
+            DataFrame containig the read performance of tier 1 device 
+        t1_write_df : DataFrame
+            DataFrame containig the write performance of tier 1 device 
+        t2_read_df : DataFrame
+            DataFrame containig the read performance of tier 2 device 
+        t2_write_df : DataFrame
+            DataFrame containig the write performance of tier 2 device 
+        storage_read_df : DataFrame
+            DataFrame containig the read performance of storage device 
+        storage_write_df : DataFrame
+            DataFrame containig the write performance of storage device 
+        device_list : list 
+            list of Device properties loaded in the file "device_list.json". Update entries to use new devices. 
+        device_list_path : list
+            path to the file containig the devices being used 
+
+        Methods
+        -------
+        load_device_perf_files
+            load the device performance files inside the MT directory 
+        get_device_json
+            get the JSON of the device with the user specified properties 
+        get_entries 
+            get rows from DataFrame corresponding to user specified performance numbers 
+        generate_devices
+            generate devices at different state based on system measurements 
+        generate_mt_caches
+            generate MT cache config files 
         """
 
         self.name = mt_name
@@ -56,7 +96,15 @@ class MTGenerator:
     def get_device_json(self, device_entry, device_label):
         """ Get a JSON of a device comprising of performance number from 
             device entry and price and other details from the device list. 
+
+        Parameters
+        ----------
+        device_entry : list 
+            list containing the read and write mean latency to be set 
+        device_label : str 
+            label used to identify the device JSON from the list 
         """
+
         [device_json] = [d for d in self.device_list if d['label'] == device_label]
         copy_device_json = device_json.copy()
         read_lat = device_entry[0][-1]
@@ -109,7 +157,6 @@ class MTGenerator:
 
         """ Find the value of latency at different quantiles based on the 
             number of states to be used. """
-
         quantile_array = np.linspace(self.min_quantile, self.max_quantile, num_states)
         if tier_index == 0:
             read_lat_quantiles = self.t1_read_df["mean_lat"].quantile(quantile_array)
@@ -144,20 +191,35 @@ class MTGenerator:
     def generate_mt_caches(self, t1_label, t2_label, storage_label, output_dir, num_states=3):
         """ Generates MT caches at different system states from FIO output 
             from running LocalBench. 
+        
+        Parameters
+        ----------
+        t1_label: str 
+            label used to identify the cache device in tier 1 
+        t2_label: str
+            label used to identify the cache device in tier 2 
+        storage_label: str
+            label used to identify the storage device 
+        output_dir : str
+            the directory where the MT cache configuration files are generated 
+        num_states : int (optional)
+            the number of read and write state to include when generating permutation 
+            MT cache is generated based on permutation of different states of the devices. 
+            We have measurements from the system for latency at varying sequential and
+            request size patterns which are states. We pick the number of states specified 
+            by the user for read and write and combine them to represent a device at different
+            states. 
         """
 
         t1_devices = self.generate_devices(num_states, 0, t1_label)
         t2_devices = self.generate_devices(num_states, 1, t2_label)
         storage_devices = self.generate_devices(num_states, 2, storage_label)
-
         mt_device_list = [t1_devices, t2_devices, storage_devices]
         mt_cache_list = list(itertools.product(*mt_device_list))
-
         for index, mt_cache in enumerate(mt_cache_list):
             mt_cache = list(mt_cache)
             device_file_name = "{}_{}_{}_{}.json".format(
                 t1_label, t2_label, storage_label, index)
             device_file_path = pathlib.Path(output_dir).joinpath(device_file_name)
-
             with device_file_path.open("w+") as f:
                 f.write(json.dumps(mt_cache, indent=4))
