@@ -362,10 +362,12 @@ class RDHistProfiler:
         ----------
         filter_size_mb : int 
             filter removes the RD histogram entries that are not relevant (Default: 0) (optional)
-            For instance, if we are generating an MHRC for this workload (RD Histogram) and a 
-            single tier cache of size 10MB, we set the filter_size_mb to 10 so that requests 
-            served by the cache tier would be filtered out. Then we evaluate the requirements 
-            for an additional tier of cache using MHRC. 
+
+            For instance, if we are generating an MHRC for this RD Histogram and 
+            we are evaluating adding a second tier where there the first tier 
+            is of size 10MB, we set the filter_size_mb to 10. This filters 
+            the requests served by the first tier and we evaluate adding a 
+            cache tier based on rest of the request which is tier 1 misses. 
         """
 
         # Filter the requests that are served from the tier 1 cache. 
@@ -389,46 +391,65 @@ class RDHistProfiler:
         return miss_hit_ratio_curve
 
 
-
-    def plot_mhrc(self, plot_path, t1_size_mb=0, min_cache_size=-1, max_cache_size=-1, step_size_mb=1000, num_x_labels=10):
+    def plot_mhrc(self, 
+        output_path="untitled_MHRC.png", 
+        filter_size_mb=0, 
+        min_cache_size_mb=-1, 
+        max_cache_size_mb=-1):
         """ Plot MHRC (Miss-Hit Ratio Curve) from a RD histogram. 
 
         Parameters
         ----------
-        plot_path : str 
-            output path of the plot
-        t1_size_mb : int 
-            size of tier 1 cache (Default: 0) (optional)
-        min_cache_size : int
-            max cache size (Default: -1) (optional) 
-        max_cache_size : int
-            max cache size (Default: -1) (optional) 
+        output_path : str 
+            output path of the MHRC plot (Default: "untitled_MHRC.png") (optional)
+        filter_size_mb : int 
+            filter removes the RD histogram entries that are not relevant (Default: 0) (optional)
+
+            For instance, if we are generating an MHRC for this RD Histogram and 
+            we are evaluating adding a second tier where there the first tier 
+            is of size 10MB, we set the filter_size_mb to 10. This filters 
+            the requests served by the first tier and we evaluate adding a 
+            cache tier based on rest of the request which is tier 1 misses. 
+
+        min_cache_size_mb : int 
+            minimum size of the new tier being evaluated (Default: -1) (optional)
+        max_cache_size_mb : int
+            maximum size of the new tier being evaluated (Default: -1) (optional) 
         """
 
         fig, ax = plt.subplots(figsize=(14,7))
-        miss_hit_ratio_curve = self.get_mhrc(t1_size_mb=t1_size_mb)
-
+        miss_hit_ratio_curve = self.get_mhrc(filter_size_mb=filter_size_mb)
         ax.plot(miss_hit_ratio_curve)
 
-        # min_cache_size = 1 if min_cache_size_mb == -1 else (min_cache_size_mb*1024*1024)//self.page_size
-        # max_cache_size = len(cum_hit_count_array) if max_cache_size_mb == -1 else (max_cache_size_mb*1024*1024)//self.page_size
+        # setup the x-axis labels based on min and max cache size 
+        if min_cache_size_mb == -1:
+            min_cache_size_mb = 0 
+        if max_cache_size_mb == -1:
+            max_cache_size_mb = np.ceil(len(miss_hit_ratio_curve)*self.page_size/1e6).astype(int)
+        cache_size_range_mb = max_cache_size_mb - min_cache_size_mb
 
-        num_points = len(miss_hit_ratio_curve)
-        x_ticks = np.arange(0, num_points, step_size_mb*1e6, dtype=int)
-        x_tick_labels = ["{}".format(int(_*self.page_size/1e6)) for _ in x_ticks]
-        ax.set_xticks(x_ticks)
-        ax.set_xticklabels(x_tick_labels)
-        ax.set_xlabel("Cache Size (MB)")
+        xtick_stepsize_array_mb = np.array([10,50,100,200,500,1000,2000,5000,10000])
+        idx = (np.abs(xtick_stepsize_array_mb - int(cache_size_range_mb//10))).argmin()
+        xtick_stepsize_mb = xtick_stepsize_array_mb[idx]
+        
+        assert(xtick_stepsize_mb > min_cache_size_mb)
+
+        label_unit = "GB" if xtick_stepsize_mb >= 100 else "MB"
+        xtick_label_array = []
+        xtick_array = []
+        for cache_size_mb in range(min_cache_size_mb, max_cache_size_mb+1):
+            if cache_size_mb % xtick_stepsize_mb == 0:
+                if label_unit == "GB":
+                    xtick_label_array.append("{}".format(cache_size_mb/1e3))
+                else:
+                    xtick_label_array.append("{}".format(cache_size_mb))
+                xtick_array.append(np.floor(cache_size_mb*1e6/self.page_size).astype(int))
+
+        ax.set_xticks(xtick_array)
+        ax.set_xticklabels(xtick_label_array)
+        ax.set_xlabel("Cache Size ({})".format(label_unit))
         ax.set_ylabel("Miss-Hit Ratio")
 
-        ax.set_title("Workload: {}, Read Cold Miss Rate: {:.3f}, T1 Size: {}\n Ops: {:.1f}M Total IO: {}GB Write: {:.1f}%".format(
-            pathlib.Path(plot_path).stem, 
-            self.cold_miss[0]/self.read_count,
-            t1_size_mb, 
-            self.req_count/1e6,
-            math.ceil(self.req_count*self.page_size/(1024*1024*1024)),
-            self.write_count/self.req_count))
-
         plt.tight_layout()
-        plt.savefig(plot_path)
+        plt.savefig(output_path)
         plt.close()
