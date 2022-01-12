@@ -8,7 +8,31 @@ logging.basicConfig(format='%(asctime)s,%(message)s', datefmt='%m/%d/%Y %I:%M:%S
 class RDHistProfiler:
     """ RDHistProfiler class allows user to perform single-tier
     and multi-tier cache analysis from a file containing the 
-    reuse distance histogram. """
+    reuse distance histogram. 
+
+    Attributes
+    ----------
+    file : pathlib.Path
+        path to the reuse distance histogram file 
+    page_size : int 
+        page size in bytes 
+    rd_hist : np.array 
+        np array containing read/write hit count at each cache size 
+    cold_miss : np.array(int)
+        np array of size (1,2) containing read/write cold miss counts 
+    read_count : int 
+        the number of read requests 
+    write_count : int 
+        the number of write requests 
+    req_count : int 
+        the number of requests 
+    max_cache_size : int 
+        size of cache that yields that maximum possible hit rate 
+    self.hrc : np.array(float)
+        np.array representing the Hit Rate Curve (HRC)
+    self.mrc : np.array(float)
+        np.array representing the Miss Rate Curve (MRC)
+    """
 
 
     def __init__(self, rd_hist_file_path, page_size=4096):  
@@ -21,19 +45,17 @@ class RDHistProfiler:
             page size in bytes (optional) (Default: 4096)
         """
 
-        self.page_size = page_size
         self.file = pathlib.Path(rd_hist_file_path)
-
-        self.data = np.loadtxt(rd_hist_file_path, delimiter=",", dtype=int)
-        self.cold_miss = self.data[0] # record cold misses in a separate variable 
-        self.data[0] = np.array([0,0]) # replace cold misses in the data array 
-
-        self.read_count = self.data[:, 0].sum() + self.cold_miss[0]
-        self.write_count = self.data[:, 1].sum() + self.cold_miss[1]
+        self.page_size = page_size 
+        self.rd_hist = np.loadtxt(rd_hist_file_path, delimiter=",", dtype=int)
+        self.cold_miss = self.rd_hist[0] # record cold misses in a separate variable 
+        self.rd_hist[0] = np.array([0,0]) # replace cold misses in the data array 
+        self.read_count = self.rd_hist[:, 0].sum() + self.cold_miss[0]
+        self.write_count = self.rd_hist[:, 1].sum() + self.cold_miss[1]
         self.req_count = self.read_count + self.write_count 
-        self.hrc = self.data.cumsum()/self.req_count
+        self.hrc = self.rd_hist.cumsum()/self.req_count
         self.mrc = 1-self.hrc 
-        self.max_cache_size = len(self.data) - 1 
+        self.max_cache_size = len(self.rd_hist) - 1 
 
 
     def get_page_cost(self, mt_config, index):
@@ -72,18 +94,18 @@ class RDHistProfiler:
         """
 
         if t1_size >= self.max_cache_size:
-            t1_hits = self.data[1:,:].sum(axis=0)
+            t1_hits = self.rd_hist[1:,:].sum(axis=0)
             t2_hits = np.array([0,0])
             miss = self.cold_miss
         else:
-            t1_hits = self.data[1:t1_size+1, :].sum(axis=0)
+            t1_hits = self.rd_hist[1:t1_size+1, :].sum(axis=0)
 
             if t1_size + t2_size >= self.max_cache_size:
-                t2_hits = self.data[t1_size+1:].sum(axis=0)
+                t2_hits = self.rd_hist[t1_size+1:].sum(axis=0)
                 miss = self.cold_miss 
             else:
-                t2_hits = self.data[t1_size+1:t1_size+t2_size+1, :].sum(axis=0)
-                miss = self.cold_miss + self.data[t1_size+t2_size+1:].sum(axis=0)
+                t2_hits = self.rd_hist[t1_size+1:t1_size+t2_size+1, :].sum(axis=0)
+                miss = self.cold_miss + self.rd_hist[t1_size+t2_size+1:].sum(axis=0)
         return np.array([t1_hits, t2_hits, miss])
 
 
@@ -299,7 +321,7 @@ class RDHistProfiler:
         """
         
         plot_path = pathlib.Path(plot_path)
-        len_mrc = len(self.mrc) if max_cache_size == -1 else min(len(self.mrc), max_cache_size)
+        len_xaxis = len(self.mrc) if max_cache_size == -1 else min(len(self.mrc), max_cache_size)
         fig, ax = plt.subplots(figsize=(14,7))
 
         if hrc_flag:
@@ -307,7 +329,7 @@ class RDHistProfiler:
         else:
             ax.plot(self.mrc)
 
-        x_ticks = np.linspace(0, len_mrc, num=num_x_labels, dtype=int)
+        x_ticks = np.linspace(0, len_xaxis, num=num_x_labels, dtype=int)
         ax.set_xticks(x_ticks)
         ax.set_xticklabels(["{}".format(int(_*self.page_size/(1024*1024))) for _ in x_ticks])
         ax.set_xlabel("Cache Size (MB)")
@@ -329,19 +351,84 @@ class RDHistProfiler:
         plt.close()
 
 
-    def plot_mhrc(self, plot_path, max_cache_size=-1):
-        """ Plot MHRC from a RD histogram. 
+    def mb_to_bytes(self, mb):
+        return mb*1e6
+
+
+    def get_mhrc(self, filter_size_mb=0):
+        """ Get array of Miss-Hit Ratio for each cache size. 
 
         Parameters
         ----------
-        plot_path: output path (str)
-        max_cache_size: max cache size (Default: -1) (optional) (int)
+        filter_size_mb : int 
+            filter removes the RD histogram entries that are not relevant (Default: 0) (optional)
+            For instance, if we are generating an MHRC for this workload (RD Histogram) and a 
+            single tier cache of size 10MB, we set the filter_size_mb to 10 so that requests 
+            served by the cache tier would be filtered out. Then we evaluate the requirements 
+            for an additional tier of cache using MHRC. 
         """
 
-        plot_path = pathlib.Path(plot_path)
-        len_mrc = len(self.mrc) if max_cache_size == -1 else min(len(self.mrc), max_cache_size)
+        # Filter the requests that are served from the tier 1 cache. 
+        filter_size = int(self.mb_to_bytes(filter_size_mb)//self.page_size)
+        cum_hit_count_array = self.rd_hist[filter_size+1:].cumsum(axis=0)
+
+        assert(len(cum_hit_count_array) > 0)
+
+        read_count, write_count = cum_hit_count_array[-1][0]+self.cold_miss[0], cum_hit_count_array[-1][1]+self.cold_miss[1]
+        miss_count_array = np.zeros(cum_hit_count_array.shape) 
+        miss_count_array[:, 0] = read_count - cum_hit_count_array[:, 0]
+        miss_count_array[:, 1] = write_count - cum_hit_count_array[:, 1]
+
+        # read hits whose latency improves 
+        hit_array = cum_hit_count_array[:,0] 
+
+        # read miss and write requests where latency gets worse 
+        miss_array = miss_count_array.sum(axis=1)
+        miss_hit_ratio_curve = miss_array/hit_array
+
+        return miss_hit_ratio_curve
+
+
+
+    def plot_mhrc(self, plot_path, t1_size_mb=0, min_cache_size=-1, max_cache_size=-1, step_size_mb=1000, num_x_labels=10):
+        """ Plot MHRC (Miss-Hit Ratio Curve) from a RD histogram. 
+
+        Parameters
+        ----------
+        plot_path : str 
+            output path of the plot
+        t1_size_mb : int 
+            size of tier 1 cache (Default: 0) (optional)
+        min_cache_size : int
+            max cache size (Default: -1) (optional) 
+        max_cache_size : int
+            max cache size (Default: -1) (optional) 
+        """
+
         fig, ax = plt.subplots(figsize=(14,7))
+        miss_hit_ratio_curve = self.get_mhrc(t1_size_mb=t1_size_mb)
 
-        """ At each cache size, the ratio of ( misses + write_count )/hits 
-        """
+        ax.plot(miss_hit_ratio_curve)
 
+        # min_cache_size = 1 if min_cache_size_mb == -1 else (min_cache_size_mb*1024*1024)//self.page_size
+        # max_cache_size = len(cum_hit_count_array) if max_cache_size_mb == -1 else (max_cache_size_mb*1024*1024)//self.page_size
+
+        num_points = len(miss_hit_ratio_curve)
+        x_ticks = np.arange(0, num_points, step_size_mb*1e6, dtype=int)
+        x_tick_labels = ["{}".format(int(_*self.page_size/1e6)) for _ in x_ticks]
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels(x_tick_labels)
+        ax.set_xlabel("Cache Size (MB)")
+        ax.set_ylabel("Miss-Hit Ratio")
+
+        ax.set_title("Workload: {}, Read Cold Miss Rate: {:.3f}, T1 Size: {}\n Ops: {:.1f}M Total IO: {}GB Write: {:.1f}%".format(
+            pathlib.Path(plot_path).stem, 
+            self.cold_miss[0]/self.read_count,
+            t1_size_mb, 
+            self.req_count/1e6,
+            math.ceil(self.req_count*self.page_size/(1024*1024*1024)),
+            self.write_count/self.req_count))
+
+        plt.tight_layout()
+        plt.savefig(plot_path)
+        plt.close()
