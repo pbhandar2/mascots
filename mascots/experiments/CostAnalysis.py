@@ -1,5 +1,7 @@
 import math, pathlib, json 
 from mascots.traceAnalysis.RDHistProfiler import RDHistProfiler
+import logging 
+logging.basicConfig(format='%(asctime)s,%(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
 class CostAnalysis:
     """ This class allows users to run cost analysis on a
@@ -38,7 +40,7 @@ class CostAnalysis:
         self.rd_hist_path = pathlib.Path(rd_hist_path)
         self.workload_name = self.rd_hist_path.stem 
         self.output_path = pathlib.Path(output_path)
-        assert self.output_dir.is_dir()
+        assert self.output_path.is_dir()
         self.profiler = RDHistProfiler(rd_hist_path)
         self.key_list = [
             "cost",
@@ -73,7 +75,7 @@ class CostAnalysis:
         )
 
 
-    def setup_mt_config_output_dir(self, mt_config):
+    def setup_mt_config_output_dir(self):
         """ Setup output directory for a MT cache configuration. 
 
         Parameters
@@ -86,14 +88,19 @@ class CostAnalysis:
             the path of the directory to output the cost analysis results 
         """
 
-        mt_name = self.get_mt_name(mt_config)
-        mt_output_dir = self.output_path.joinpath(mt_name)
+        mt_output_dir = self.output_path.joinpath(self.workload_name)
         if not mt_output_dir.exists():
             mt_output_dir.mkdir()
         return mt_output_dir
 
 
-    def eval_mt(self, mt_config_path, min_cost=1, cost_step=1, max_cost=-1, cache_unit_size=256):
+    def eval_mt(self, 
+        mt_config_path, 
+        min_cost=5, 
+        cost_step=5, 
+        max_cost=-1, 
+        cache_unit_size=250,
+        limit_max_cost=True):
         """ Evaluate an MT configurations at varying cost. 
 
         Parameters
@@ -112,6 +119,9 @@ class CostAnalysis:
             of 256 would set the granularity of cache analysis to 4KB *256=1MB. 
             This means that cache can only by whole numbers of MB unit. 5MB exists
             but 5.4MB does not. 
+        limit_max_cost : bool (optional)
+            determines whether max cost is limited by the cost of the cache device (defaults to True)
+
         Return
         ------
         output_dir : str
@@ -122,13 +132,34 @@ class CostAnalysis:
         with mt_config_path.open("r") as f:
             mt_config = json.load(f)
 
-        mt_output_dir = self.setup_mt_config_output_dir(mt_config)
-        csv_output_path = mt_output_dir.joinpath("{}.csv".format(self.workload_name))
+        mt_output_dir = self.setup_mt_config_output_dir()
+        csv_output_path = mt_output_dir.joinpath("{}.csv".format(mt_config_path.stem))
         if max_cost == -1:
-            max_cost = math.ceil(len(self.profiler.data)*self.profiler.get_page_cost(mt_config, 0))
+            if limit_max_cost:
+                max_cost = max(math.ceil(len(self.profiler.data)*self.profiler.get_page_cost(mt_config, 0)),
+                    mt_config[0]["cost"] + mt_config[1]["cost"])
+            else:
+                max_cost = math.ceil(len(self.profiler.data)*self.profiler.get_page_cost(mt_config, 0))
 
         with csv_output_path.open("w+") as csv_handle:
             for cost in range(min_cost, max_cost, cost_step):
                 mt_eval_json = self.profiler.cost_eval_exclusive(mt_config, self.write_policy, cost, cache_unit_size)   
-                out_string = ",".join([str(mt_eval_json[key] for key in self.key_list)])
+                out_string = ",".join([str(mt_eval_json[key]) for key in self.key_list])
+                logging.info(out_string)
                 csv_handle.write("{}\n".format(out_string))
+                csv_handle.flush()
+    
+
+    def eval_mt_dir(self, mt_dir):
+        """ Evaluate all the device configurations in the directory. 
+
+        Parameters
+        ----------
+        mt_dir : str
+            path to directory containing MT config files 
+        """
+
+        mt_dir = pathlib.Path(mt_dir)
+        for mt_file in mt_dir.iterdir():
+            logging.info("Evaluating MT file: {}".format(mt_file))
+            self.eval_mt(mt_file)

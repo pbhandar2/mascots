@@ -1,0 +1,87 @@
+{
+    "rd_hist_4k_dir": "/research2/mtc/cp_traces/rd_hist_4k",
+    "ex_cost_analysis_dir": "/research2/mtc/cp_traces/ex_cost_analysis",
+    "opt_cache_mhmrc_dir": "/research2/mtc/cp_traces/opt_cache_type_mhmrc",
+    "opt_cache_type_vs_scaled_cost_hist_dir": "/research2/mtc/cp_traces/opt_cache_vs_scaled_cost_hist",
+    "opt_cache_vs_cost_plot_dir": "/research2/mtc/cp_traces/opt_cache_vs_cost_plot",
+    "general_data_dir": "/research2/mtc/cp_traces/general",
+
+    "rw_hrc_plot_dir": "/research2/mtc/cp_traces/rw_hrc_plot",
+
+    "error_per_mt_config": "/research2/mtc/cp_traces/hmrc_error_per_mt_config",
+    "error_per_step_size": "/research2/mtc/cp_traces/hmrc_error_per_step_size",
+
+    "error_per_scaled_cost": "/research2/mtc/cp_traces/hmrc_error_per_scaled_cost",
+    "error_per_cost": "/research2/mtc/cp_traces/hmrc_error_per_cost",
+
+
+    "mhmrc_cost_analysis_dir": "/research2/mtc/cp_traces/mhmrc_cost_analysis",
+    "exhaustive_cost_analysis_dir": "/research2/mtc/cp_traces/exhaustive_cost_analysis/",
+    "opt_exhaustive_cost_analysis_dir": "/research2/mtc/cp_traces/opt_exhaustive_cost_analysis/",
+    "per_workload_points_vs_error_plot_dir": "/research2/mtc/cp_traces/per_workload_points_vs_error_plot",
+    "device_config_dir": "/home/pranav/mtc/mt_config/", 
+    "st_mt_latency_plots_dir": "/research2/mtc/cp_traces/st_mt_latency_plots",
+    "hmrc_exhaustive_plots_dir": "/research2/mtc/cp_traces/hmrc_exhaustive_plots",
+    "hmrc_eval_points_vs_accuracy_plots_dir": "/research2/mtc/cp_traces/eval_points_vs_accuracy",
+    "points_filtered_plots_dir": "/research2/mtc/cp_traces/points_filtered_plots",
+    "latency_per_dollar_plots_dir": "/research2/mtc/cp_traces/latency_per_dollar_plots",
+
+    "cache_color_marker_map": {
+        "D1": {
+            "color": "b",
+            "marker": "D"
+        },
+        "D3": {
+            "color": "g",
+            "marker": "X"
+        },
+        "D1_S1": {
+            "color": "r",
+            "marker": "P"
+        },
+        "D1_S3": {
+            "color": "c",
+            "marker": ">"
+        },
+        "D1_S5": {
+            "color": "m",
+            "marker": "8"
+        },
+        "D3_S1": {
+            "color": "indigo",
+            "marker": "*"
+        },
+        "D3_S3": {
+            "color": "k",
+            "marker": "d"
+        },
+        "D3_S5": {
+            "color": "darkorange",
+            "marker": "8"
+        },
+        "D1_D3": {
+            "color": "brown",
+            "marker": "h"
+        }
+    },
+
+    "priority_2_tier_mt_label_list": [
+        "D1_S1_H1",
+        "D1_S3_H1", 
+        "D1_S5_H1",
+        "D3_S1_H1",
+        "D3_S3_H1", 
+        "D3_S5_H1",
+        "D1_S1_H3",
+        "D1_S3_H3", 
+        "D1_S5_H3",
+        "D3_S1_H3",
+        "D3_S3_H3", 
+        "D3_S5_H3",
+        "D1_S1_S5",
+        "D3_S1_S5",
+        "D1_D3_S5", 
+        "D1_D3_H1", 
+        "D1_D3_H3"
+    ]
+}

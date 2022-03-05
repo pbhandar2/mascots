@@ -1,26 +1,59 @@
 from mascots.blockReader.Reader import Reader
 
 class CPReader(Reader): 
+    """
+    The class to read the CSV version of CloudPhysics traces 
 
-    def __init__(self, block_trace_path):
-        self.block_trace_path = block_trace_path 
-        self.block_trace_handle = open(block_trace_path, "r")
+    ...
+
+    Attributes
+    ----------
+    trace_path : Path
+        Path object to the path of the CSV CloudPhysics trace 
+    
+    Methods
+    -------
+    get_next_block_req(self)
+        Get JSON object comprising of attributes and values of the next block request 
+    generate_page_trace(self, page_trace_path, page_size, block_size)
+        Generate a page trace from the block file for a specified block and page size 
+    """
+
+    def __init__(self, trace_path):
+        """
+        Parameters
+        ----------
+        trace_path : str 
+            path of the page trace 
+        """
+
+        super().__init__(trace_path)
         self.line = None # stores the previous line 
 
 
     def get_next_block_req(self):
-        """ It returns a dict of the attributes of the next block request. 
+        """ Return a dict of block request attributes and values 
+
+        Return 
+        ------
+        block_req : dict 
+            dict with block request attributes and values 
         """
-        self.line = self.block_trace_handle.readline().rstrip()
+        
+        self.line = self.trace_file_handle.readline().rstrip()
         block_req = {}
         if self.line:
-            block_req["ts"], block_req["lba"], block_req["op"], block_req["size"] = self.line.split(",")
+            split_line = self.line.split(",")
+            block_req["ts"] = int(split_line[0])
+            block_req["lba"] = int(split_line[1])
+            block_req["op"] = split_line[2]
+            block_req["size"] = int(split_line[3])
             return block_req
         return block_req
 
     
     def reset(self):
-        self.block_trace_handle.seek(0)
+        self.trace_file_handle.seek(0)
 
 
     def __add__(self, reader2, output_path):

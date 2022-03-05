@@ -1,0 +1,21 @@
+[{
+    "type": "DRAM",
+    "read_lat": 3.22,
+    "write_lat": 3.37,
+    "size": 8,
+    "cost": 33
+},
+{
+    "type": "SSD",
+    "read_lat": 273.93,
+    "write_lat": 173.66,
+    "size": 447,
+    "cost": 182.17
+},
+{
+    "type": "HDD",
+    "read_lat": 9202.4,
+    "write_lat": 4661.68,
+    "size": 931,
+    "cost": 29.05
+}]

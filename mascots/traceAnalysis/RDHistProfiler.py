@@ -1,13 +1,42 @@
-import pathlib, math 
+import itertools, pathlib, math, json, time, logging, copy
 import numpy as np 
 import matplotlib.pyplot as plt
-import logging 
+
+from mascots.traceAnalysis.MTConfigLib import MTConfigLib 
 logging.basicConfig(format='%(asctime)s,%(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 
+EXCLUSIVE_FLAG = "exclusive"
+INCLUSIVE_FLAG = "inclusive"
+
+# template of a row when finding cost-efficient cache for a given workload, MT config and cost 
+OPT_ROW_JSON = {
+    "cost": 0.0, # cost limit of the cache 
+    "max_cost": 0.0, # max cost of cache for this workload and MT cache 
+    "num_eval": 0, # number of points evaluated 
+    "st_size": 0, # size of the base ST cache (one that uses the tier 1 device) (Default: MB)
+    "st_latency": 0.0, # latency of the base ST cache (microseconds)
+    "st_cost": 0.0, # cost of the base ST cache 
+    "st_bandwidth_per_dollar": 0.0, # latency per dollar of the base ST cache 
+    "opt_st_size": 0, # size of the best ST cache (one that might not use the tier 1 device)
+    "opt_st_latency": math.inf, # latency of the best ST cache 
+    "opt_st_cost": 0.0, # cost of the best ST cache 
+    "opt_st_bandwidth_per_dollar": 0.0, # latency per dollar of best ST cache 
+    "opt_st_device_label": "", # label of the device used in the best ST cache 
+    "mt_p_size_array": None, # array of sizes of the cost-optimal pyramidal MT cache 
+    "mt_p_latency": math.inf, # latency of cost-optimal pyramidal MT cache (microseconds)
+    "mt_p_cost": 0.0, # exact cost of pyramidal MT cache 
+    "mt_p_bandwidth_per_dollar": 0.0, # latency per dollar of cost-optimal pyramidal MT cache 
+    "mt_np_size_array": None, # array of sizes of the cost-optimal non-pyramidal MT cache 
+    "mt_np_latency": math.inf, # latency of cost-optimal non-pyramidal MT cache (microseconds)
+    "mt_np_cost": 0.0, # exact cost of non-pyramidal MT cache 
+    "mt_np_bandwidth_per_dollar": 0.0, # latency per dollar of cost-optimal non-pyramidal MT cache 
+    "mt_opt_flag": 0, # flag denoting optimal MT cache type (0=ST, 1=pyramidal MT, 2=non-pyramidal MT)
+    "mt_label": "" # label to identify the MT configuration evaluated (e.g D1_S1_H2)
+}
 
 class RDHistProfiler:
     """ RDHistProfiler class allows user to perform single-tier
-    and multi-tier cache analysis from a file containing the 
+    and multi-tier cache analyw10sis from a file containing the 
     reuse distance histogram. 
 
     Attributes
@@ -16,6 +45,8 @@ class RDHistProfiler:
         path to the reuse distance histogram file 
     page_size : int 
         page size in bytes 
+    allocation_size : int 
+        the number of pages in a unit allocation 
     rd_hist : np.array 
         np array containing read/write hit count at each cache size 
     cold_miss : np.array(int)
@@ -34,422 +65,468 @@ class RDHistProfiler:
         np.array representing the Miss Rate Curve (MRC)
     """
 
-
-    def __init__(self, rd_hist_file_path, page_size=4096):  
+    def __init__(self, rd_hist_file_path, 
+            page_size=4096, 
+            allocation_unit=256, 
+            second_scaler=1e6):  
         """ 
         Parameters
         ----------
         rd_hist_file_path: str
-            path to the RD histogram file 
+            path to the file containing the RD histogram 
         page_size : int 
             page size in bytes (optional) (Default: 4096)
+        allocation_unit : int 
+            number of pages in a unit allocation (optional) (Default: 256)
+        second_scaler : int 
+            value to scale bandwidth values by if latency is in microseconds
+            then 1e6 would scale it to seconds (optional) (default: 1e6)
         """
 
+        # load RD histogram from the file and group it based on allocation unit
         self.file = pathlib.Path(rd_hist_file_path)
         self.page_size = page_size 
-        self.rd_hist = np.loadtxt(rd_hist_file_path, delimiter=",", dtype=int)
-        self.cold_miss = self.rd_hist[0] # record cold misses in a separate variable 
-        self.rd_hist[0] = np.array([0,0]) # replace cold misses in the data array 
+        self.allocation_unit = allocation_unit
+        self.second_scaler = second_scaler
+        self.mt_lib = MTConfigLib()
+        self.load_rd_hist(rd_hist_file_path)
+
+
+    def load_rd_hist(self, rd_hist_file_path):
+        """ Load the RD histogram in a file and update the stats
+
+        Parameters
+        ----------
+        rd_hist_file_path : str
+            path to the file containing RD histogram
+        """
+
+        # each row has read and write count at that RD 
+        rd_hist_data = np.loadtxt(rd_hist_file_path, delimiter=",", dtype=int)
+
+        # store cold misses in a separate variable 
+        self.cold_miss = np.copy(rd_hist_data[0]) 
+
+        # length of RD histogram based on allocation unit 
+        len_rd_hist = math.ceil(len(rd_hist_data)/self.allocation_unit)
+        self.rd_hist = np.zeros((len_rd_hist+1, 2), dtype=int)
+        self.rd_hist[1:] = np.add.reduceat(rd_hist_data[1:], 
+            range(0, len(rd_hist_data), self.allocation_unit))
+
+        assert(self.rd_hist[:, 0].sum() == rd_hist_data[1:, 0].sum())
+        assert(self.rd_hist[:, 1].sum() == rd_hist_data[1:, 1].sum())
+
+        # track the total read and write count 
         self.read_count = self.rd_hist[:, 0].sum() + self.cold_miss[0]
         self.write_count = self.rd_hist[:, 1].sum() + self.cold_miss[1]
         self.req_count = self.read_count + self.write_count 
-        self.hrc = self.rd_hist.cumsum()/self.req_count
-        self.mrc = 1-self.hrc 
+
+        # index of the array corresponds to cache size at which cache hits occur
+        # index 0 always has value 0,0 because cache size of 0 yields no hits 
         self.max_cache_size = len(self.rd_hist) - 1 
 
-
-    def get_page_cost(self, mt_config, index):
-        """ Compute the cost of a page at a given tier index. 
-
-        Parameters
-        ----------
-        mt_config : list
-            list of JSONs representing cache tiers 
-        indes : int 
-            the index of the cache tier 
+        # generate MRC/HRC from the RD histogram 
+        self.hrc = self.rd_hist.sum(axis=1).cumsum()/self.req_count
+        self.mrc = 1 - self.hrc 
         
-        Return
-        ------
-        page_cost : float 
-            the cost of a page in dollar 
-        """
 
-        return self.page_size*mt_config[index]["cost"]/(mt_config[index]["size"]*1024*1024*1024)
-
-
-    def get_exclusive_cache_hits(self, t1_size, t2_size):
-        """ Get the number of cache hits at each tier and the remaining cache misses.
+    def get_exclusive_cache_hits(self, size_array):
+        """ Get the number of cache hits at each tier and cache misses. 
 
         Parameters
         ----------
-        t1_size : int
-            size of Tier 1 
-        t2_size : int 
-            size of Tier 2 
+        size_array : list 
+            list of size N cotaning the size of each tier of an N tier cache 
 
         Return
         ------
         hit_array : np.array
-            array with read and write hits at each tier 
+            array of size N+1 with cache hits at each tier of an N tier cache and cache misses 
         """
 
-        if t1_size >= self.max_cache_size:
-            t1_hits = self.rd_hist[1:,:].sum(axis=0)
-            t2_hits = np.array([0,0])
-            miss = self.cold_miss
-        else:
-            t1_hits = self.rd_hist[1:t1_size+1, :].sum(axis=0)
+        # tracker starts from 1 because at index 0 we store cold miss
+        rd_hist_index_tracker = 1
 
-            if t1_size + t2_size >= self.max_cache_size:
-                t2_hits = self.rd_hist[t1_size+1:].sum(axis=0)
-                miss = self.cold_miss 
+        # one additional row for cache misses 
+        cache_hits_array = np.zeros((len(size_array)+1, 2), dtype=int)
+        for tier_index in range(len(size_array)):
+
+            # if the total cache size exceeds the max cache size we can break additional tier would have 0 hits 
+            if size_array[tier_index] + rd_hist_index_tracker >= self.max_cache_size:
+                cache_hits_array[tier_index] = self.rd_hist[rd_hist_index_tracker:, :].sum(axis=0)
+
+                # misses are only cold misses since max cache size is acheived 
+                cache_hits_array[len(size_array)] = self.cold_miss 
+                break 
             else:
-                t2_hits = self.rd_hist[t1_size+1:t1_size+t2_size+1, :].sum(axis=0)
-                miss = self.cold_miss + self.rd_hist[t1_size+t2_size+1:].sum(axis=0)
-        return np.array([t1_hits, t2_hits, miss])
+                cache_hits_array[tier_index] = self.rd_hist[rd_hist_index_tracker:rd_hist_index_tracker+size_array[tier_index], :].sum(axis=0)
+            rd_hist_index_tracker += size_array[tier_index] 
+        else:
+            # we exit before breaking meaning we have more misses apart from the cold misses 
+            cache_hits_array[len(size_array)] = np.sum([self.cold_miss, self.rd_hist[rd_hist_index_tracker:, :].sum(axis=0)], axis=0)
+
+        assert(np.sum(cache_hits_array)==np.sum(self.rd_hist)+np.sum(self.cold_miss))
+        return cache_hits_array
 
 
-    def get_mean_latency(self, t1_size, t2_size, lat_array):
+    def get_mean_latency(self, size_array, lat_array):
         """ Compute mean latency for a given T1, T2 size and latency array.
 
         Parameters
         ----------
-        t1_size : int
-            size of Tier 1 
-        t2_size : int 
-            size of Tier 2 
+        size_array : list 
+            list of size N cotaning the size of each tier of an N tier cache 
         lat_array : np.array
-            array of read and write latency of each tier 
+            array of size (N+1, 2) with read and write latency of each tier and storage 
 
-        Returns
-        -------
+        Return
+        ------
         mean_latency : float
-            mean latency of MT cache and given device latency values 
+            mean latency of an MT cache 
         """
 
-        cache_hits = self.get_exclusive_cache_hits(t1_size, t2_size)
+        cache_hits = self.get_exclusive_cache_hits(size_array)
         total_latency = np.sum(np.multiply(cache_hits, lat_array))
         return total_latency/self.req_count
 
 
-    def two_tier_exclusive_wb(self, mt_config):
-        """ For a given MT configuration, return the latency of a 
-        2-tier write-back exclusive MT cache.
+    def exhaustive_cost_analysis(self, mt_config_file_list, cache_unit_size, 
+        min_cost=1, max_cost=-1):
+        """ Do an exhaustive cost analysis for this workload, and a list of MT caches 
 
         Parameters
         ----------
-        mt_config : list
-            list of dict containing properties of cache device at 
-            each tier 
+        mt_config_file_list : list 
+            list of string representing paths to MT config files 
+        cache_unit_size : int 
+            the number of pages per allocation unit 
+        min_cost : int 
+            the minimum cost to evaluate (optional) (Default: 5)
+        max_cost : int 
+            the maximum cost to evaluate (optional) (Default: -1)
 
-        Returns
-        -------
-        lat_array : np.array
-            array of read and write latency of each cache tier 
+        Return 
+        ------
+        opt_entry : iterator 
+            an iterator that returns the write-back, write-through OPT per iteration 
+            using iterator instead of returning an array so that we can write to file 
+            as we get results and analyze
         """
 
-        lat_array = np.zeros([len(mt_config), 2], dtype=float) 
+        header_dict = {
+            "workload": self.file.stem, 
+            "cache_unit_size": cache_unit_size, 
+            "page_size": self.page_size,
+            "max_cost": max_cost }
+        logging.info("Performing exhaustive cost analysis")
+        for key in header_dict:
+            logging.info("{}: {}".format(key, header_dict[key]))
 
-        # Tier 1 Read Lat = read from T1 
-        lat_array[0][0] = mt_config[0]["read_lat"]
-        # Tier 1 Write Lat = write to T1 
-        lat_array[0][1] = mt_config[0]["write_lat"] 
-
-        # Tier 2 Read Lat = read from T2 + write to T1 + read from T1 + write to T2 
-        lat_array[1][0] = mt_config[1]["read_lat"] + mt_config[0]["write_lat"] \
-            + mt_config[0]["read_lat"] + mt_config[1]["write_lat"]
-        # Tier 2 Write Lat = write to T1 + read from T1 + write to T2 
-        lat_array[1][1] = mt_config[0]["write_lat"] + mt_config[0]["read_lat"] \
-            + mt_config[1]["write_lat"] 
-
-        # Read Miss Lat = read from Storage + write to T1 + read from T1 + write to T2 
-        lat_array[2][0] = mt_config[-1]["read_lat"] + mt_config[0]["write_lat"] \
-            + mt_config[0]["read_lat"] + mt_config[1]["write_lat"]
-        # Write Miss Lat = write to T1 + read from T1 + write to T2 
-        lat_array[2][1] = mt_config[0]["write_lat"] \
-            + mt_config[0]["read_lat"] + mt_config[1]["write_lat"]
-
-        return lat_array
+        for mt_config_file in mt_config_file_list:
+            mt_config = {}
+            with open(mt_config_file) as f:
+                mt_config = json.load(f)
+            if max_cost == -1:
+                tier1_unit_cost = self.mt_lib.get_unit_cost(mt_config, 0, cache_unit_size)
+                max_cost = max(math.ceil(self.max_cache_size * tier1_unit_cost), min_cost)
+            logging.info("Computing cost range {} to {}".format(min_cost, max_cost))
+            for cost in range(min_cost, max_cost+1):
+                start = time.perf_counter()
+                wb_opt_entry, wt_opt_entry = self.two_tier_optimized_cost_analysis(mt_config, cost)
+                end = time.perf_counter()
+                logging.info("workload: {} cost: {}, {:.2f}% Done!, Time Taken: {}".format(
+                    self.file.stem,
+                    cost, 
+                    100*cost/max_cost,
+                    end-start))
+                yield wb_opt_entry, wt_opt_entry
 
 
-    def two_tier_exclusive_wt(self, mt_config):
-        """ For a given MT configuration, return the latency of a 
-        2-tier write-through exclusive MT cache.  
+    def get_mean_bandwidth_per_dollar(self, out_dict, cache_type_label):
+        """ Compute the mean bandwidth per dollar 
 
-        Parameters
-        ----------
-        mt_config : list
-            list of dict containing properties of cache device at 
-            each tier 
-
-        Returns
-        -------
-        lat_array : np.array
-            array of read and write latency of each cache tier 
+            Parameters
+            ----------
+            out_dict : dict
+                dict containing the latency of the best ST, MT-P and MT-NP cache 
+            cache_type_label : str
+                label indicating the type of cache 
+            Return 
+            ------
+            mean_bandwidth_per_dollar : float 
+                the mean bandwidth per dollar spent 
         """
 
-        """ The difference between the latency of an exclusive 2-tier 
-        write-back and write-through is that there has to be a disk-write 
-        on every write request regardless of the tier of the cache hit. Disk-writes 
-        are ignored in write-back caches as it is assumed to be done async so 
-        doesn't add to the latency. 
+        bandwidth = self.second_scaler/(out_dict["{}_latency".format(cache_type_label)]*self.allocation_unit)
+        return bandwidth/out_dict["{}_cost".format(cache_type_label)]
+
+
+    def init_two_tier_exhaustive_output(self, mt_config, cost_limit, write_policy):
+        """ Generate a base output dict for a given MT configuration, cost limit 
+            and write policy. 
+
+            Parameters
+            ----------
+            mt_config : list 
+                list of dicts with device properties 
+            cost_limit : int 
+                cost limit of MT cache in dollars 
+            write_policy : str 
+                "wb" (write-back) or "wt" (write-through) write policy 
+
+            Return 
+            ------
+            output_dict : dict 
+                dict containing details of cost analysis 
         """
 
-        lat_array = self.two_tier_exclusive_wb(mt_config)
-        for i in range(len(mt_config)):
-            lat_array[i][1] += self.config[-1]["write_lat"]
-        return lat_array
-
-
-    def cost_eval_exclusive(self, mt_config, write_policy, cost, cache_unit_size, min_t2_size=350):
-        """ Evaluate various cache configuration of a given cost and MT cache configuration. 
-
-        Parameters
-        ----------
-        mt_config : list
-            list of dict containing properties of cache device at 
-            each tier 
-        write_policy : str
-            write policy of the MT cache 
-        cost : float
-            the cost of the cache 
-        cache_unit_size: int
-            the unit size of cache allocation 
-        min_t2_size : int 
-            minimum size of tier 2 cache in MB 
-
-        Returns
-        -------
-        mt_cache_info: dict
-            dict containing the following keys: 
-                cost : float
-                    cost of the cache in dollars 
-                st_t1 : int 
-                    max size of tier 1 scaled by cache unit size 
-                st_lat : float
-                    mean latency of an ST cache 
-                mt_p_t1 : int
-                    tier 1 size of pyramidal MT cache 
-                mt_p_t2 : int
-                    tier 2 size of pyramidal MT cahce 
-                mt_p_lat : float
-                    mean latency of pyramidal MT cache 
-                mt_np_t1 : int
-                    tier 1 size of non-pyramidal MT cache 
-                mt_np_t2 : int
-                    tier 2 size of non-pyramidal MT cache 
-                mt_np_lat : float 
-                    mean latency of non-pyramidal MT cache
-        """
-
+        mt_lib = MTConfigLib()
         if write_policy == "wb":
-            lat_array = self.two_tier_exclusive_wb(mt_config)
+            lat_array = mt_lib.two_tier_exclusive_wb(mt_config)
         elif write_policy == "wt":
-            lat_array = self.two_tier_exclusive_wb(mt_config)
-        else:
-            raise ValueError
+            lat_array = mt_lib.two_tier_exclusive_wt(mt_config)
 
-        mt_p_config, mt_np_config = [0,0], [0,0]
-        mt_p_lat, mt_np_lat, st_lat = math.inf, math.inf, math.inf
+        out_dict = copy.deepcopy(OPT_ROW_JSON)
+        st_cache_size = mt_lib.get_max_tier_size(mt_config, 0, 
+                                                self.allocation_unit, 
+                                                cost_limit)
+        
+        out_dict["cost"] = cost_limit
+        out_dict["st_size"] = out_dict["opt_st_size"] = st_cache_size
+        out_dict["st_latency"] = out_dict["opt_st_latency"] = self.get_mean_latency([st_cache_size, 0], 
+                                                                                    lat_array)
+        out_dict["st_cost"] = out_dict["opt_st_cost"] = mt_lib.get_cache_cost(mt_config, 
+                                                                                [st_cache_size, 0],
+                                                                                self.allocation_unit)
+        out_dict["max_cost"] = math.ceil(mt_lib.get_cache_cost(mt_config, [self.max_cache_size, 0],
+                                                                self.allocation_unit))
+        out_dict["st_bandwidth_per_dollar"] = self.get_mean_bandwidth_per_dollar(out_dict, "st")
+        out_dict["opt_st_bandwidth_per_dollar"] = self.get_mean_bandwidth_per_dollar(out_dict, "opt_st")
+        out_dict["opt_st_device_label"] = mt_config[0]["label"]
+        out_dict["mt_p_size_array"] = [0, 0]
+        out_dict["mt_np_size_array"] = [0, 0]
+        out_dict["num_eval"] = st_cache_size
+        out_dict["mt_label"] = mt_lib.get_mt_label(mt_config)
+        return out_dict
 
-        t1_cost_per_byte = mt_config[0]["cost"]/(mt_config[0]["size"]*1e9)
-        t1_cost_per_page = self.page_size * t1_cost_per_byte
-        t1_cost_per_unit = t1_cost_per_page * cache_unit_size 
+    
+    def get_opt_cache_type_flag(self, out_dict):
+        """ Get the OPT cache type given the output dict containing 
+            latency of different cache types 
 
-        t2_cost_per_byte = mt_config[1]["cost"]/(mt_config[1]["size"]*1e9)
-        t2_cost_per_page = self.page_size * t2_cost_per_byte
-        t2_cost_per_unit = t2_cost_per_page * cache_unit_size 
-
-        """ For the given cost, find 
-            1. The latency and size of an ST cache. 
-            2. The latency and sizes of the best pyramidal MT cache 
-            3. The latency and sizes of the best non-pyramidal MT cache if it exists 
+            Parameters
+            ----------
+            out_dict : dict
+                dict containing the latency of the best ST, MT-P and MT-NP cache 
+            Return 
+            ------
+            opt_cache_type_flag : int 
+                flag indicating the type of cache that was optimal 
         """
-        max_t1_size = math.floor(cost/t1_cost_per_unit)
-        for t1_size in range(1, max_t1_size+1):
-            t1_cost = t1_size * t1_cost_per_unit
-            t2_cost = cost - t1_cost 
-            t2_size = math.floor(t2_cost/t2_cost_per_unit)
 
-            if t2_size < min_t2_size:
+        st_latency = out_dict["st_latency"]
+        mt_p_latency = out_dict["mt_p_latency"]
+        mt_np_latency = out_dict["mt_np_latency"]
+
+        mt_opt_flag = 0
+        if mt_p_latency < st_latency and mt_p_latency < mt_np_latency:
+            mt_opt_flag = 1
+        elif mt_np_latency < st_latency and mt_np_latency <= mt_p_latency:
+            mt_opt_flag = 2
+        return mt_opt_flag 
+
+
+    def update_opt_cache(self, mt_config, out_dict, size_array, latency, cache_label):
+        """ Update the output JSON if necessary
+
+        Parameters
+        ----------
+        mt_config : list 
+            list of dicts with device properties 
+        out_dict : dict 
+            output dict containing details of OPT cache types 
+        size_array : list 
+            the size array that was evaluated 
+        latency : float 
+            the latency of the evaluationn 
+        cache_label : str 
+            "opt_st" for ST, "mt_p" for MT-P, "mt_np" for MT-NP 
+        """
+        if latency < out_dict["{}_latency".format(cache_label)]:
+            if cache_label == "opt_st":
+                out_dict["{}_size".format(cache_label)] = size_array[1]
+                out_dict["{}_device_label".format(cache_label)] = mt_config[1]["label"]
+                assert(size_array[0] == 0)
+            else:
+                out_dict["{}_size_array".format(cache_label)] = size_array
+            out_dict["{}_latency".format(cache_label)] = latency 
+            out_dict["{}_cost".format(cache_label)] = self.mt_lib.get_cache_cost(mt_config, 
+                                                                                size_array,
+                                                                                self.allocation_unit)
+            out_dict["{}_bandwidth_per_dollar".format(cache_label)] = self.get_mean_bandwidth_per_dollar(out_dict,
+                                                                                                        cache_label)
+
+
+    def two_tier_optimized_cost_analysis(self, mt_config, cost_limit):
+        """ Find optimal cache given cache devices at each tier and cost limit. 
+
+            Parameters
+            ----------
+            mt_config : list 
+                list of dicts with device specifications 
+            cost_limit : int 
+                the cost limit of MT cache in dollars 
+
+            Return 
+            ------
+            wb_out_dict, wt_out_dict : dict 
+                output dict with output of exhaustive search for wb and wt 
+        """
+
+        wb_output_dict = self.init_two_tier_exhaustive_output(mt_config, cost_limit, "wb")
+        wt_output_dict = self.init_two_tier_exhaustive_output(mt_config, cost_limit, "wt")
+
+        wb_lat_array = self.mt_lib.two_tier_exclusive_wb(mt_config)
+        wt_lat_array = self.mt_lib.two_tier_exclusive_wt(mt_config)
+
+        t1_cost = self.mt_lib.get_unit_cost(mt_config, 0, self.allocation_unit)
+        max_t1_size = math.floor(cost_limit/t1_cost)
+        
+        for t1_size in range(max_t1_size+1):
+            t2_size = self.mt_lib.get_max_t2_size(mt_config, t1_size, cost_limit, 
+                                                    self.allocation_unit)
+            wb_mean_latency = self.get_mean_latency([t1_size, t2_size], wb_lat_array)
+            wt_mean_latency = self.get_mean_latency([t1_size, t2_size], wt_lat_array)
+            size_array = [t1_size, t2_size]
+
+            if t1_size == 0:
+                self.update_opt_cache(mt_config, wb_output_dict, size_array, wb_mean_latency, "opt_st")
+                self.update_opt_cache(mt_config, wt_output_dict, size_array, wt_mean_latency, "opt_st")                
                 continue 
 
-            mean_lat = self.get_mean_latency(t1_size*cache_unit_size, t2_size*cache_unit_size, lat_array)
-
             if t1_size < t2_size:
-                if mean_lat < mt_p_lat:
-                    mt_p_config = [t1_size, t2_size]
-                    mt_p_lat = mean_lat 
+                self.update_opt_cache(mt_config, wb_output_dict, size_array, wb_mean_latency, "mt_p")
+                self.update_opt_cache(mt_config, wt_output_dict, size_array, wt_mean_latency, "mt_p")                      
             else:
-                if mean_lat < mt_np_lat:
-                    mt_np_config = [t1_size, t2_size]
-                    mt_np_lat = mean_lat 
-            
-            # if the ST cache has already been evaluated then break;
-            if t1_size == max_t1_size and t2_size == 0:
-                st_lat = mean_lat
-                break
-        else:
-            # since ST cahce has not been compute, evaluate the ST cache 
-            mean_lat = self.get_mean_latency(t1_size, t2_size, lat_array)
-            st_lat = mean_lat
+                self.update_opt_cache(mt_config, wb_output_dict, size_array, wb_mean_latency, "mt_np")
+                self.update_opt_cache(mt_config, wt_output_dict, size_array, wt_mean_latency, "mt_np") 
+
+        wb_output_dict["mt_opt_flag"] = self.get_opt_cache_type_flag(wb_output_dict)
+        wt_output_dict["mt_opt_flag"] = self.get_opt_cache_type_flag(wt_output_dict)
         
-        return {
-            "cost": cost,
-            "st_t1": max_t1_size,
-            "st_lat": st_lat,
-            "mt_p_t1": mt_p_config[0],
-            "mt_p_t2": mt_p_config[1],
-            "mt_p_lat": mt_p_lat,
-            "mt_np_t1": mt_np_config[0],
-            "mt_np_t2": mt_np_config[1],
-            "mt_np_lat": mt_np_lat
-        }
+        return wb_output_dict, wt_output_dict
 
 
-    def plot_mrc(self, plot_path, max_cache_size=-1, num_x_labels=10, hrc_flag=False):
-        """ Plot MRC of the RD histogram
+    def max_hit_miss_ratio(self, adm_policy=EXCLUSIVE_FLAG):
+        """ Return the Max Hit-Miss Ratio Curve for this RD histogram 
 
-        Parameters
-        ----------
-        plot_path: str
-            output path 
-        max_cache_size: int
-            max cache size (Default: -1) (optional) 
-        num_x_labels: int
-            number of xlabels (Default: 10) (optional) 
+            Parameters
+            ----------
+            adm_policy : string 
+                "exclusive" or "inclusive" admission policy (Optional) 
+                    (Default: EXCLUSIVE_FLAG)
+
+            Return
+            ------
+            max_hmrc_array : np.array 
+                np array of size equal to the maximum cache size with 
+                    maximum hit-miss ratio at different tier 1 sizes 
         """
+
+        """ Generating an array of read/write hit count
+            at different cache sizes. The values at index 
+            'i' represents the read/write hit count for 
+            a cache of size 'i'. 
+            
+            For instance,
+            At index 0, the values would be [0,0] since a 
+            cache of size 0 would yield no read/write hits. 
+            
+            At index -1, the values would be [x,y] where 
+            x and y are maximum possible read and write 
+            hit count. """
+        cum_hit_count_array = self.rd_hist.cumsum(axis=0)
+        max_read_hits = cum_hit_count_array[-1][0]
+        max_write_hits = cum_hit_count_array[-1][1]
+
+        """ For every tier 1 size, the array contains the read 
+            miss count. The number of read misses at a given 
+            tier 1 size is also the potential number of read hits
+            for an additional tier. 
+            
+            NOTE: we ignore index 0 as it means that the value stored 
+            is for tier 1 with size 0 which means there is no tier 1. 
+            Our metric assumes an existence of a tier 1 cache with size > 0. 
+        """
+        potential_read_hits_array = max_read_hits - cum_hit_count_array[1:,0]
+
+        if adm_policy == EXCLUSIVE_FLAG:
+            """ In an exclusive MT cache with 2 tiers,  
+                all read misses incur additional overhead 
+                all tier 1 write miss incur additional overhead 
+                    - the overhead in the above two cases is due to the 
+                        eviction from tier 1 which is to be admitted to 
+                        tier 2 """
+            miss_array = (max_write_hits + self.cold_miss.sum()) - cum_hit_count_array[1:, 1]
+        elif adm_policy == INCLUSIVE_FLAG:
+            """ In an inclusve MT cache with 2 tiers, 
+                all read misses incur additional overhead 
+                all write requests incur additional overhead 
+                    - the overhead in the above two cases is due to the 
+                        additional write to tier 2 on a tier 2 read 
+                        miss and all write requests """
+            miss_array = self.cold_miss.sum() + max_write_hits
+        else:
+            raise ValueError(
+                "{} not a valid admission policy. Only exclusive or inclusive".format(adm_policy))
         
-        plot_path = pathlib.Path(plot_path)
-        len_xaxis = len(self.mrc) if max_cache_size == -1 else min(len(self.mrc), max_cache_size)
-        fig, ax = plt.subplots(figsize=(14,7))
-
-        if hrc_flag:
-            ax.plot(self.hrc)
-        else:
-            ax.plot(self.mrc)
-
-        x_ticks = np.linspace(0, len_xaxis, num=num_x_labels, dtype=int)
-        ax.set_xticks(x_ticks)
-        ax.set_xticklabels(["{}".format(int(_*self.page_size/(1024*1024))) for _ in x_ticks])
-        ax.set_xlabel("Cache Size (MB)")
-
-        if hrc_flag:
-            ax.set_ylabel("Hit Rate")
-        else:
-            ax.set_ylabel("Miss Rate")
-
-        ax.set_title("Workload: {}, Read Cold Miss Rate: {:.3f} \n Ops: {:.1f}M Total IO: {}GB Write: {:.1f}%".format(
-            plot_path.stem, 
-            self.cold_miss[0]/self.read_count,
-            self.req_count/1e6,
-            math.ceil(self.req_count*self.page_size/(1024*1024*1024)),
-            self.write_count/self.req_count))
-
-        plt.tight_layout()
-        plt.savefig(plot_path)
-        plt.close()
+        return np.divide(potential_read_hits_array, miss_array)
 
 
     def mb_to_bytes(self, mb):
+        """ Convert a given value from MB to bytes 
+
+        Parameters
+        ----------
+        mb : int 
+            the value in MB to be converted to bytes
+        """
+
         return mb*1e6
 
 
-    def get_mhrc(self, filter_size_mb=0):
-        """ Get array of Miss-Hit Ratio for each cache size. 
+    def get_hmrc(self, filter_size_mb=0):
+        """ Get array of Hit-Miss Ratio for each cache size. 
 
         Parameters
         ----------
         filter_size_mb : int 
-            filter removes the RD histogram entries that are not relevant (Default: 0) (optional)
+            filter removes the RD histogram entries that are 
+                not relevant (Default: 0) (optional)
 
-            For instance, if we are generating an MHRC for this RD Histogram and 
-            we are evaluating adding a second tier where there the first tier 
-            is of size 10MB, we set the filter_size_mb to 10. This filters 
-            the requests served by the first tier and we evaluate adding a 
-            cache tier based on rest of the request which is tier 1 misses. 
+            For instance, if we are generating an MHRC for this 
+            RD Histogram and we are evaluating adding a second tier 
+            where there the first tier is of size 10MB, we set the 
+            filter_size_mb to 10. This filters the requests served 
+            by the first tier and we evaluate adding a cache tier 
+            based on rest of the request which is tier 1 misses. 
         """
 
-        # Filter the requests that are served from the tier 1 cache. 
+        # filter the requests that are served from the tier 1 cache. 
         filter_size = int(self.mb_to_bytes(filter_size_mb)//self.page_size)
         cum_hit_count_array = self.rd_hist[filter_size+1:].cumsum(axis=0)
 
         assert(len(cum_hit_count_array) > 0)
 
-        read_count, write_count = cum_hit_count_array[-1][0]+self.cold_miss[0], cum_hit_count_array[-1][1]+self.cold_miss[1]
-        miss_count_array = np.zeros(cum_hit_count_array.shape) 
-        miss_count_array[:, 0] = read_count - cum_hit_count_array[:, 0]
-        miss_count_array[:, 1] = write_count - cum_hit_count_array[:, 1]
+        read_count, write_count = cum_hit_count_array[-1][0]+self.cold_miss[0], \
+            cum_hit_count_array[-1][1]+self.cold_miss[1]
+        miss_count_array = np.zeros(cum_hit_count_array.shape[0], dtype=int) 
+        miss_count_array = read_count - cum_hit_count_array[:, 0]
+        miss_count_array += write_count
 
         # read hits whose latency improves 
         hit_array = cum_hit_count_array[:,0] 
 
         # read miss and write requests where latency gets worse 
-        miss_array = miss_count_array.sum(axis=1)
-        miss_hit_ratio_curve = miss_array/hit_array
-
-        return miss_hit_ratio_curve
-
-
-    def plot_mhrc(self, 
-        output_path="untitled_MHRC.png", 
-        filter_size_mb=0, 
-        min_cache_size_mb=-1, 
-        max_cache_size_mb=-1):
-        """ Plot MHRC (Miss-Hit Ratio Curve) from a RD histogram. 
-
-        Parameters
-        ----------
-        output_path : str 
-            output path of the MHRC plot (Default: "untitled_MHRC.png") (optional)
-        filter_size_mb : int 
-            filter removes the RD histogram entries that are not relevant (Default: 0) (optional)
-
-            For instance, if we are generating an MHRC for this RD Histogram and 
-            we are evaluating adding a second tier where there the first tier 
-            is of size 10MB, we set the filter_size_mb to 10. This filters 
-            the requests served by the first tier and we evaluate adding a 
-            cache tier based on rest of the request which is tier 1 misses. 
-
-        min_cache_size_mb : int 
-            minimum size of the new tier being evaluated (Default: -1) (optional)
-        max_cache_size_mb : int
-            maximum size of the new tier being evaluated (Default: -1) (optional) 
-        """
-
-        fig, ax = plt.subplots(figsize=(14,7))
-        miss_hit_ratio_curve = self.get_mhrc(filter_size_mb=filter_size_mb)
-        ax.plot(miss_hit_ratio_curve)
-
-        # setup the x-axis labels based on min and max cache size 
-        if min_cache_size_mb == -1:
-            min_cache_size_mb = 0 
-        if max_cache_size_mb == -1:
-            max_cache_size_mb = np.ceil(len(miss_hit_ratio_curve)*self.page_size/1e6).astype(int)
-        cache_size_range_mb = max_cache_size_mb - min_cache_size_mb
-
-        xtick_stepsize_array_mb = np.array([10,50,100,200,500,1000,2000,5000,10000])
-        idx = (np.abs(xtick_stepsize_array_mb - int(cache_size_range_mb//10))).argmin()
-        xtick_stepsize_mb = xtick_stepsize_array_mb[idx]
-        
-        assert(xtick_stepsize_mb > min_cache_size_mb)
-
-        label_unit = "GB" if xtick_stepsize_mb >= 100 else "MB"
-        xtick_label_array = []
-        xtick_array = []
-        for cache_size_mb in range(min_cache_size_mb, max_cache_size_mb+1):
-            if cache_size_mb % xtick_stepsize_mb == 0:
-                if label_unit == "GB":
-                    xtick_label_array.append("{}".format(cache_size_mb/1e3))
-                else:
-                    xtick_label_array.append("{}".format(cache_size_mb))
-                xtick_array.append(np.floor(cache_size_mb*1e6/self.page_size).astype(int))
-
-        ax.set_xticks(xtick_array)
-        ax.set_xticklabels(xtick_label_array)
-        ax.set_xlabel("Cache Size ({})".format(label_unit))
-        ax.set_ylabel("Miss-Hit Ratio")
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-        plt.close()
+        hit_miss_ratio_curve = np.divide(hit_array, miss_count_array)
+        return hit_miss_ratio_curve

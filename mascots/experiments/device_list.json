@@ -8,18 +8,33 @@
     "price_ref": "https://www.amazon.com/G-Skill-TridentZ-288-Pin-3600MHz-F4-3600C17D-16GTZR/dp/B01N4V82FW/ref=sr_1_1?dchild=1&keywords=G.SKILL+TridentZ+Series+16GB+3600+C17&qid=1624663008&s=electronics&sr=1-1",
     "size": 16,
     "cost": 140,
+    "cost_per_gb": 8.75,
     "date": "06/25/2021"
 },
 {
     "type": "DRAM",
     "label": "U-D2",
-    "read_lat": 0.0755,
-    "write_lat": 0.0755,
+    "read_lat": 0.0743,
+    "write_lat": 0.0743,
     "product": "Corsair Vengeance LPX DDR4 3000 C15 2x8GB",
     "perf_ref": "https://ram.userbenchmark.com/Corsair-Vengeance-LPX-DDR4-3000-C15-2x8GB/Rating/3546",
     "price_ref": "https://www.amazon.com/Corsair-Vengeance-3000MHz-Desktop-Memory/dp/B0134EW7G8",
     "size": 16,
     "cost": 94,
+    "cost_per_gb": 5.875,
+    "date": "06/25/2021"
+},
+{
+    "type": "DRAM",
+    "label": "U-D3",
+    "read_lat": 0.0763,
+    "write_lat": 0.0763,
+    "product": "Corsair Vengeance LPX DDR4 3000 C15 2x8GB",
+    "perf_ref": "https://ram.userbenchmark.com/Corsair-Vengeance-LPX-DDR4-3000-C15-2x8GB/Rating/3546",
+    "price_ref": "https://www.amazon.com/Corsair-Vengeance-3000MHz-Desktop-Memory/dp/B0134EW7G8",
+    "size": 16,
+    "cost": 65,
+    "cost_per_gb": 4.065,
     "date": "06/25/2021"
 },
 {
@@ -60,7 +75,7 @@
 },
 {
     "type": "HDD",
-    "label": "H2",
+    "label": "U-H2",
     "read_lat": 5500,
     "write_lat": 5500,
     "product": "Toshiba MK7559GSXP - 750 GB - SATA-300 Series", 

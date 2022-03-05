@@ -1,6 +1,7 @@
 import pathlib, math 
 
 from mascots.blockReader.CPReader import CPReader
+from mascots.traceAnalysis.BlockTraceStat import BlockTraceStat
 
 # define Python user-defined exceptions
 class Error(Exception):
@@ -14,11 +15,31 @@ class NoDataFromReader(Error):
 
 class BlockProfiler:
 
-    def __init__(self, block_trace_path, block_size=512, ts_second_scaler=1000000):
+    def __init__(self, block_trace_path, block_size=512, ts_second_scaler=1e6):
+        """ BlockProfiler generates statistics about a block trace file. 
+
+        Attributes
+        ----------
+        path : str 
+            path of the block trace file being analyzed 
+        reader : CPReader
+            reader returns one block request at a time from the block trace 
+        block_size : int 
+            size of a Logical Block Address (LBA) in bytes (defaults to 512)
+        ts_second_scaler : int
+            variable to scale the time to seconds (Defaults to 1e6 represents microseconds)
+        start_time : int 
+            start time of the trace 
+        io_count : int 
+            the number of IO requests in a block trace 
+        """
+
         self.path = pathlib.Path(block_trace_path)
         self.reader = CPReader(block_trace_path)
         self.block_size = block_size
         self.ts_second_scaler = ts_second_scaler
+
+        self.stat = BlockTraceStat()
 
         # workload attributes
         self.start_time = None
@@ -104,26 +125,32 @@ class BlockProfiler:
             print("No data received from Reader. The file could be empty or the Reader needs to be reset to start of file.")
 
         while block_req:
-            self.record_io(block_req)
+            if block_req["op"] == "r":
+                write_flag = 0 
+            else:
+                write_flag = 1
+            self.stat.record_block_req(write_flag, int(block_req["size"]), int(block_req["lba"]), int(block_req["ts"]))
+            #self.stat.render()
             block_req = self.reader.get_next_block_req()
-        self.io_done()
+        
 
 
     def write_block_stats_to_file(self, output_file):
-        total_io = self.total_write_size+self.total_read_size
-        with open(output_file, "a+") as o:
-            o.write("{},{:.2f},{:.2f},{:.3f},{:.3f},{},{},{:.3f},{},{:.2f}\n".format(
-                self.path.stem, # workload tag 
-                self.io_count/1000000, # number of requests (Millions)
-                total_io/(1024*1024*1024), # total IO size (GB)
-                self.write_count/self.io_count, # write request ratio
-                self.total_write_size/total_io, # write IO ratio
-                math.ceil(self.total_read_size/self.read_count), # mean read request size 
-                math.ceil(self.total_write_size/self.write_count), # mean write request size,
-                self.seq_run_count/self.io_count, # sequential access ratio 
-                self.max_seq_run,
-                (self.cur_time - self.start_time)/(self.ts_second_scaler*60*60) # hours 
-            ))
+        self.stat.write_to_file(output_file, workload_name=self.path.stem)
+        # total_io = self.total_write_size+self.total_read_size
+        # with open(output_file, "a+") as o:
+        #     o.write("{},{:.2f},{:.2f},{:.3f},{:.3f},{},{},{:.3f},{},{:.2f}\n".format(
+        #         self.path.stem, # workload tag 
+        #         self.io_count/1000000, # number of requests (Millions)
+        #         total_io/(1024*1024*1024), # total IO size (GB)
+        #         self.write_count/self.io_count, # write request ratio
+        #         self.total_write_size/total_io, # write IO ratio
+        #         math.ceil(self.total_read_size/self.read_count), # mean read request size 
+        #         math.ceil(self.total_write_size/self.write_count), # mean write request size,
+        #         self.seq_run_count/self.io_count, # sequential access ratio 
+        #         self.max_seq_run,
+        #         (self.cur_time - self.start_time)/(self.ts_second_scaler*60*60) # hours 
+        #     ))
 
 
     def get_data_headers(self):
